@@ -212,7 +212,7 @@ namespace sqt_impl {
     n1 = n[1];
     n2 = n[2];
   }
-  //INLINE vec3 sqt_get_position(sqt_t v) {}
+  // INLINE vec3 sqt_get_position(sqt_t v) {}
 #ifdef __cplusplus
 }
 #endif

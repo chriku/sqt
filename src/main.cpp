@@ -55,17 +55,17 @@ TEST_CASE("neighbors_self") {
   for (sqt v : bunch_of_triangles()) {
     sqt nb0, nb1, nb2;
     std::multiset<sqt> s;
-    auto [n0,n1,n2]=v.get_neighbors();
+    auto [n0, n1, n2] = v.get_neighbors();
     std::println("N {}: {} {} {}", v, n0, n1, n2);
-    auto[nba0,nba1,nba2]=n0.get_neighbors();
+    auto [nba0, nba1, nba2] = n0.get_neighbors();
     s.insert(nba0);
     s.insert(nba1);
     s.insert(nba2);
-    auto[nbb0,nbb1,nbb2]=n1.get_neighbors();
+    auto [nbb0, nbb1, nbb2] = n1.get_neighbors();
     s.insert(nbb0);
     s.insert(nbb1);
     s.insert(nbb2);
-    auto[nbc0,nbc1,nbc2]=n2.get_neighbors();
+    auto [nbc0, nbc1, nbc2] = n2.get_neighbors();
     s.insert(nbc0);
     s.insert(nbc1);
     s.insert(nbc2);
