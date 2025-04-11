@@ -1,4 +1,4 @@
-#include "sqt.glsl"
+#include "sqt.hpp"
 
 #define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
 #include "doctest/doctest.h"
@@ -8,36 +8,17 @@
 #include <ranges>
 #include <set>
 
-template <> struct std::formatter<sqt::sqt_t> {
-  constexpr auto parse(std::format_parse_context& ctx) {
-    auto it = ctx.begin();
-    if (it == ctx.end())
-      return it;
-    if (*it != '}')
-      throw std::format_error("Invalid format args for sqt::sqt_t.");
-    return it;
-  }
-
-  auto format(sqt::sqt_t v, std::format_context& ctx) const {
-    std::format_to(ctx.out(), "sqt_t({:#x}: {}", v._data, sqt::sqt_major(v));
-    for (size_t i = 0; i < sqt::sqt_count(v); i++) {
-      std::format_to(ctx.out(), ", {}", sqt::sqt_minor(v, i));
-    }
-    return std::format_to(ctx.out(), ")");
-  }
-};
-
-std::generator<sqt::sqt_t> bunch_of_triangles() {
+std::generator<sqt> bunch_of_triangles() {
   for (size_t major = 0; major < 20; major++) {
-    co_yield sqt::sqt_t(major, {});
+    co_yield sqt(major, {});
     for (size_t a = 0; a < 4; a++) {
-      co_yield sqt::sqt_t(major, {a});
+      co_yield sqt(major, {a});
       for (size_t b = 0; b < 4; b++) {
-        co_yield sqt::sqt_t(major, {a, b});
+        co_yield sqt(major, {a, b});
         for (size_t c = 0; c < 4; c++) {
-          co_yield sqt::sqt_t(major, {a, b, c});
+          co_yield sqt(major, {a, b, c});
           for (size_t d = 0; d < 4; d++) {
-            co_yield sqt::sqt_t(major, {a, b, c, d});
+            co_yield sqt(major, {a, b, c, d});
           }
         }
       }
@@ -46,55 +27,48 @@ std::generator<sqt::sqt_t> bunch_of_triangles() {
 }
 
 TEST_CASE("basic") {
-  sqt::sqt_t a = sqt::sqt_new();
-  CHECK(a._data == 0);
-  CHECK(sqt::sqt_major(a) == 0);
-  CHECK(sqt::sqt_count(a) == 0);
-  sqt::sqt_set_major(a, 2);
-  CHECK(a._data != 0);
-  CHECK(sqt::sqt_major(a) == 2);
-  CHECK(sqt::sqt_count(a) == 0);
-  a = sqt::sqt_add_minor(a, 3);
-  CHECK(sqt::sqt_major(a) == 2);
-  CHECK(sqt::sqt_count(a) == 1);
-  CHECK(sqt::sqt_minor(a, 0) == 3);
-  a = sqt::sqt_add_minor(a, 0);
-  CHECK(sqt::sqt_major(a) == 2);
-  CHECK(sqt::sqt_count(a) == 2);
-  CHECK(sqt::sqt_minor(a, 0) == 3);
-  CHECK(sqt::sqt_minor(a, 1) == 0);
-  a = sqt::sqt_add_minor(a, 1);
-  CHECK(sqt::sqt_major(a) == 2);
-  CHECK(sqt::sqt_count(a) == 3);
-  CHECK(sqt::sqt_minor(a, 0) == 3);
-  CHECK(sqt::sqt_minor(a, 1) == 0);
-  CHECK(sqt::sqt_minor(a, 2) == 1);
-  sqt::sqt_t b = {2, {3, 0, 1}};
+  sqt a;
+  CHECK(a.major() == 0);
+  CHECK(a.count() == 0);
+  a.set_major(2);
+  CHECK(a.major() == 2);
+  CHECK(a.count() == 0);
+  a = a.add_minor(3);
+  CHECK(a.major() == 2);
+  CHECK(a.count() == 1);
+  CHECK(a.minor(0) == 3);
+  a = a.add_minor(0);
+  CHECK(a.major() == 2);
+  CHECK(a.count() == 2);
+  CHECK(a.minor(0) == 3);
+  CHECK(a.minor(1) == 0);
+  a = a.add_minor(1);
+  CHECK(a.major() == 2);
+  CHECK(a.count() == 3);
+  CHECK(a.minor(0) == 3);
+  CHECK(a.minor(1) == 0);
+  CHECK(a.minor(2) == 1);
+  sqt b = {2, {3, 0, 1}};
   CHECK(a == b);
 }
 TEST_CASE("neighbors_self") {
-  for (sqt::sqt_t v : bunch_of_triangles()) {
-    sqt::sqt_t n0 = sqt::sqt_new();
-    sqt::sqt_t n1 = sqt::sqt_new();
-    sqt::sqt_t n2 = sqt::sqt_new();
-    sqt::sqt_t nb0 = sqt::sqt_new();
-    sqt::sqt_t nb1 = sqt::sqt_new();
-    sqt::sqt_t nb2 = sqt::sqt_new();
-    std::multiset<sqt::sqt_t> s;
-    sqt_get_neighbors(v, n0, n1, n2);
+  for (sqt v : bunch_of_triangles()) {
+    sqt nb0, nb1, nb2;
+    std::multiset<sqt> s;
+    auto [n0,n1,n2]=v.get_neighbors();
     std::println("N {}: {} {} {}", v, n0, n1, n2);
-    sqt_get_neighbors(n0, nb0, nb1, nb2);
-    s.insert(nb0);
-    s.insert(nb1);
-    s.insert(nb2);
-    sqt_get_neighbors(n1, nb0, nb1, nb2);
-    s.insert(nb0);
-    s.insert(nb1);
-    s.insert(nb2);
-    sqt_get_neighbors(n2, nb0, nb1, nb2);
-    s.insert(nb0);
-    s.insert(nb1);
-    s.insert(nb2);
+    auto[nba0,nba1,nba2]=n0.get_neighbors();
+    s.insert(nba0);
+    s.insert(nba1);
+    s.insert(nba2);
+    auto[nbb0,nbb1,nbb2]=n1.get_neighbors();
+    s.insert(nbb0);
+    s.insert(nbb1);
+    s.insert(nbb2);
+    auto[nbc0,nbc1,nbc2]=n2.get_neighbors();
+    s.insert(nbc0);
+    s.insert(nbc1);
+    s.insert(nbc2);
     CHECK(s.size() == 9);
     CHECK(s.count(v) == 3);
   }

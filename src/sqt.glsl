@@ -7,7 +7,7 @@
 #define INLINE
 #define CONSTEXPR constexpr
 #define OUT(v, n) v& n
-namespace sqt {
+namespace sqt_impl {
   using namespace glm;
 #else
 #define CPP(X)
@@ -20,7 +20,6 @@ namespace sqt {
   struct sqt_t {
     CPP(sqt_t() = delete;)
     CPP(inline sqt_t(std::nullptr_t){};)
-    CPP(inline sqt_t(uint8_t major, std::initializer_list<uint8_t> minors);)
     uint64_t _data;
     CPP(auto operator<=>(const sqt_t&) const = default;)
   };
@@ -213,14 +212,7 @@ namespace sqt {
     n1 = n[1];
     n2 = n[2];
   }
-  INLINE vec3 sqt_get_position(sqt_t v) {}
-  CPP(inline sqt_t::sqt_t(uint8_t major, std::initializer_list<uint8_t> minors) {
-    _data = 0;
-    sqt_set_major(*this, major);
-    for (auto m : minors) {
-      *this = sqt_add_minor(*this, m);
-    }
-  })
+  //INLINE vec3 sqt_get_position(sqt_t v) {}
 #ifdef __cplusplus
 }
 #endif
