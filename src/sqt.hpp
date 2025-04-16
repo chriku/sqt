@@ -1,6 +1,9 @@
 #include "sqt.glsl"
 #include <format>
 #include <iterator>
+#include <ranges>
+
+#include <print>
 
 struct sqt {
   inline sqt() : data_(sqt_impl::sqt_new()) {}
@@ -31,55 +34,29 @@ struct sqt {
   sqt add_minor(uint32_t v) const {
     return sqt_impl::sqt_add_minor(data_, v);
   }
+  sqt counted(uint32_t v) const {
+    sqt d2 = *this;
+    sqt_impl::sqt_set_count(d2.data_, v);
+    return d2;
+  }
   auto operator<=>(const sqt&) const = default;
   std::array<sqt, 3> get_neighbors() const {
     std::array<sqt, 3> ret;
     sqt_impl::sqt_get_neighbors(data_, ret[0].data_, ret[1].data_, ret[2].data_);
     return ret;
   }
+  bool is_neighbor(sqt other) const {
+    assert(other.count() >= count());
+    auto [a, b, c] = other.get_neighbors();
+    if (*this == a.counted(count()))
+      return true;
+    if (*this == b.counted(count()))
+      return true;
+    if (*this == c.counted(count()))
+      return true;
+    return false;
+  }
 
-#if 0
-template< class I >
-    concept input_or_output_iterator =
-        requires(I i) {
-            { *i } -> /*can-reference*/;
-        } &&
-        std::weakly_incrementable<I>;
-template< class I >
-    concept input_iterator =
-        std::input_or_output_iterator<I> &&
-        std::indirectly_readable<I> &&
-        requires { typename /*ITER_CONCEPT*/<I>; } &&
-        std::derived_from</*ITER_CONCEPT*/<I>, std::input_iterator_tag>;
-template< class I >
-    concept forward_iterator =
-        std::input_iterator<I> &&
-        std::derived_from</*ITER_CONCEPT*/<I>, std::forward_iterator_tag> &&
-        std::incrementable<I> &&
-        std::sentinel_for<I, I>;
-template< class I >
-    concept bidirectional_iterator =
-        std::forward_iterator<I> &&
-        std::derived_from</*ITER_CONCEPT*/<I>, std::bidirectional_iterator_tag> &&
-        requires(I i) {
-            { --i } -> std::same_as<I&>;
-            { i-- } -> std::same_as<I>;
-        };
-template< class I >
-    concept random_access_iterator =
-        std::bidirectional_iterator<I> &&
-        std::derived_from</*ITER_CONCEPT*/<I>, std::random_access_iterator_tag> &&
-        std::totally_ordered<I> &&
-        std::sized_sentinel_for<I, I> &&
-        requires(I i, const I j, const std::iter_difference_t<I> n) {
-            { i += n } -> std::same_as<I&>;
-            { j +  n } -> std::same_as<I>;
-            { n +  j } -> std::same_as<I>;
-            { i -= n } -> std::same_as<I&>;
-            { j -  n } -> std::same_as<I>;
-            {  j[n]  } -> std::same_as<std::iter_reference_t<I>>;
-        };
-#endif
   struct iterator {
     using iterator_category = std::random_access_iterator_tag;
     using difference_type = int8_t;
@@ -157,6 +134,131 @@ template< class I >
 private:
   inline sqt(sqt_impl::sqt_t v) : data_(v) {}
   sqt_impl::sqt_t data_;
+};
+template <typename T, typename Allocator = std::allocator<T>> struct sqt_tree {
+  inline sqt_tree(const T& t = {}) {
+    for (auto& n : data)
+      n.content = t;
+  }
+  inline void set(sqt l, T&& v) {
+    node* n = breakdown(l);
+    if (!std::holds_alternative<T>(n->content)) {
+      delete_npa(std::get<node_pointer_array>(n->content));
+    }
+    n->content = std::move(v);
+  }
+  inline bool touches_leaf(sqt l) const {
+    const node* n = &data.at(l.major());
+    for (auto step : l) {
+      if (std::holds_alternative<T>(n->content))
+        return true;
+      n = std::get<node_pointer_array>(n->content).at(step);
+    }
+    return std::holds_alternative<T>(n->content);
+  }
+  inline std::optional<sqt> get_leaf(sqt l) const {
+    const node* n = &data.at(l.major());
+    for (auto [i, step] : l | std::views::enumerate) {
+      if (std::holds_alternative<T>(n->content))
+        return l.counted(i);
+      n = std::get<node_pointer_array>(n->content).at(step);
+    }
+    if (std::holds_alternative<T>(n->content))
+      return l;
+    return {};
+  }
+  inline bool is_leaf(sqt l) const {
+    return std::holds_alternative<T>(lookdown(l)->content);
+  }
+  inline T* first_leaf(sqt l) const {
+    node* n = data.at(l.major());
+    for (auto step : l) {
+      if (std::holds_alternative<T>(n->content))
+        return &std::get<T>(n->content);
+      n = std::get<node_pointer_array>(n->content).at(step);
+    }
+    if (std::holds_alternative<T>(n->content))
+      return &std::get<T>(n->content);
+    return nullptr;
+  }
+  inline T& operator[](sqt l) {
+    return std::get<T>(lookdown(l)->content);
+  }
+  inline void all_neighbors(sqt l, std::output_iterator<sqt> auto outputter) const {
+    assert(is_leaf(l));
+    for (auto n : l.get_neighbors()) {
+      auto leaf = get_leaf(n);
+      if (leaf)
+        *outputter++ = leaf.value();
+      else
+        find_small_neighbors(l, n, lookdown(n), outputter);
+    }
+  }
+
+private:
+  struct node;
+  using node_pointer_array = std::array<node*, 4>;
+  inline void find_small_neighbors(sqt l, sqt nbr, const node* n, std::output_iterator<sqt> auto& outputter) const {
+    std::println("A {}/{}", nbr.count(), l.count());
+    assert(l.is_neighbor(nbr));
+    assert(std::holds_alternative<node_pointer_array>(n->content));
+    for (size_t i = 0; i < 4; i++) {
+      auto x = nbr.add_minor(i);
+      std::println("B {}/{}", x.count(), l.count());
+      std::println("ISNBR {} to {}: {}", l, x, l.is_neighbor(x));
+      if (l.is_neighbor(x)) {
+        const node* n2 = std::get<node_pointer_array>(n->content).at(i);
+        std::println("V", n2->content.index());
+        if (std::holds_alternative<T>(n2->content)) {
+          *outputter++ = x;
+        } else {
+          find_small_neighbors(l, x, n2, outputter);
+        }
+      }
+    }
+  }
+  inline node* breakdown(sqt l) {
+    node* n = &data.at(l.major());
+    for (auto step : l) {
+      if (std::holds_alternative<T>(n->content)) {
+        node_pointer_array val;
+        for (auto& v : val) {
+          v = new node;
+          v->content = std::get<T>(n->content);
+        }
+        n->content = val;
+      }
+      n = std::get<node_pointer_array>(n->content).at(step);
+    }
+    return n;
+  }
+  inline const node* lookdown(sqt l) const {
+    const node* n = &data.at(l.major());
+    for (auto step : l) {
+      assert(std::holds_alternative<node_pointer_array>(n->content));
+      n = std::get<node_pointer_array>(n->content).at(step);
+    }
+    return n;
+  }
+  inline node* lookdown(sqt l) {
+    node* n = &data.at(l.major());
+    for (auto step : l) {
+      assert(std::holds_alternative<node_pointer_array>(n->content));
+      n = std::get<node_pointer_array>(n->content).at(step);
+    }
+    return n;
+  }
+  inline void delete_npa(node_pointer_array& a) {
+    for (auto n : a) {
+      if (std::holds_alternative<node_pointer_array>(n->content))
+        delete_npa(std::get<node_pointer_array>(n->content));
+      delete n;
+    }
+  }
+  struct node {
+    std::variant<node_pointer_array, T> content;
+  };
+  std::array<node, 20> data;
 };
 
 template <> struct std::formatter<sqt> {

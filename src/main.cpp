@@ -99,3 +99,12 @@ TEST_CASE("iterate2") {
   CHECK(res.at(0) == 3);
   CHECK(res.at(1) == 0);
 }
+TEST_CASE("neighbors") {
+  sqt_tree<int> tree(38);
+  tree.set(sqt{3, {1}}, 42);
+  tree.set(sqt{3, {0, 1, 1, 1, 1}}, 43);
+  std::vector<sqt> out;
+  tree.all_neighbors(sqt{3, {3}}, std::back_inserter(out));
+  for (auto n : out)
+    std::println("NBR {} = {}", n, tree[n]);
+}

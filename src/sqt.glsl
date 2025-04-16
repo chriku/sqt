@@ -30,8 +30,10 @@ namespace sqt_impl {
   CONSTEXPR uint64_t major_offset = 54;
   CONSTEXPR uint64_t count_mask = count_bits << count_offset;
   CONSTEXPR uint64_t major_mask = major_bits << major_offset;
+  CONSTEXPR uint64_t minor_mask = (uint64_t(1) << major_offset)-1;
   CONSTEXPR uint64_t inv_count_mask = ~count_mask;
   CONSTEXPR uint64_t inv_major_mask = ~major_mask;
+  CONSTEXPR uint64_t inv_minor_mask = ~minor_mask;
 
 #ifdef __cplusplus
   enum direction_type { direction_A, direction_B, direction_C, direction_center };
@@ -87,7 +89,7 @@ CONSTEXPR uint8_t direction_center = uint8_t(3);
     return uint32_t(v._data >> uint64_t(i * 2)) & uint32_t(0x3);
   }
   INLINE void sqt_set_count(OUT(sqt_t, v), uint32_t c) {
-    v._data = (v._data & inv_count_mask) | (uint64_t(c) << count_offset);
+    v._data = (v._data & inv_count_mask & (inv_minor_mask|((uint64_t(1)<<(c*2))-1))) | (uint64_t(c) << count_offset);
   }
   INLINE void sqt_set_major(OUT(sqt_t, v), uint32_t m) {
     assert(m < major_count);
