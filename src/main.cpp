@@ -56,7 +56,7 @@ TEST_CASE("neighbors_self") {
     sqt nb0, nb1, nb2;
     std::multiset<sqt> s;
     auto [n0, n1, n2] = v.get_neighbors();
-    std::println("N {}: {} {} {}", v, n0, n1, n2);
+    // std::println("N {}: {} {} {}", v, n0, n1, n2);
     auto [nba0, nba1, nba2] = n0.get_neighbors();
     s.insert(nba0);
     s.insert(nba1);
@@ -72,4 +72,30 @@ TEST_CASE("neighbors_self") {
     CHECK(s.size() == 9);
     CHECK(s.count(v) == 3);
   }
+}
+static_assert(std::input_or_output_iterator<sqt::iterator>);
+static_assert(std::input_iterator<sqt::iterator>);
+static_assert(std::forward_iterator<sqt::iterator>);
+static_assert(std::bidirectional_iterator<sqt::iterator>);
+static_assert(std::random_access_iterator<sqt::iterator>);
+TEST_CASE("iterate") {
+  sqt v = {10, {3, 0, 1}};
+  std::vector<size_t> res;
+  for (auto x : v) {
+    res.push_back(x);
+  }
+  CHECK(res.size() == 3);
+  CHECK(res.at(0) == 3);
+  CHECK(res.at(1) == 0);
+  CHECK(res.at(2) == 1);
+}
+TEST_CASE("iterate2") {
+  sqt v = {10, {3, 0, 1}};
+  std::vector<size_t> res;
+  for (auto x : v | std::views::take(2)) {
+    res.push_back(x);
+  }
+  CHECK(res.size() == 2);
+  CHECK(res.at(0) == 3);
+  CHECK(res.at(1) == 0);
 }

@@ -33,10 +33,15 @@ namespace sqt_impl {
   CONSTEXPR uint64_t inv_count_mask = ~count_mask;
   CONSTEXPR uint64_t inv_major_mask = ~major_mask;
 
-  CONSTEXPR uint8_t direction_A = uint8_t(0);
-  CONSTEXPR uint8_t direction_B = uint8_t(1);
-  CONSTEXPR uint8_t direction_C = uint8_t(2);
-  CONSTEXPR uint8_t direction_center = uint8_t(3);
+#ifdef __cplusplus
+  enum direction_type { direction_A, direction_B, direction_C, direction_center };
+#else
+CONSTEXPR uint8_t direction_A = uint8_t(0);
+CONSTEXPR uint8_t direction_B = uint8_t(1);
+CONSTEXPR uint8_t direction_C = uint8_t(2);
+CONSTEXPR uint8_t direction_center = uint8_t(3);
+#define direction_type uint8_t
+#endif
 
   CONSTEXPR uint8_t permutations[6][3] = {{uint8_t(0), uint8_t(1), uint8_t(2)},
       {uint8_t(0), uint8_t(2), uint8_t(1)},
@@ -212,7 +217,7 @@ namespace sqt_impl {
     n1 = n[1];
     n2 = n[2];
   }
-  // INLINE vec3 sqt_get_position(sqt_t v) {}
+// INLINE vec3 sqt_get_position(sqt_t v) {}
 #ifdef __cplusplus
 }
 #endif
