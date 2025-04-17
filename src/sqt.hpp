@@ -134,13 +134,19 @@ struct sqt {
     return iterator{data_, uint8_t(sqt_impl::sqt_count(data_))};
   }
   std::array<glm::vec3, 3> get_points_vec3() const {
-    return sqt_impl::sqt_get_points_vec3(data_);
+    std::array<glm::vec3, 3> ret;
+    sqt_impl::sqt_get_points_vec3(data_, ret[0], ret[1], ret[2]);
+    return ret;
   }
   std::array<glm::vec3, 3> get_points_nvec3() const {
-    return sqt_impl::sqt_get_points_nvec3(data_);
+    std::array<glm::vec3, 3> ret;
+    sqt_impl::sqt_get_points_nvec3(data_, ret[0], ret[1], ret[2]);
+    return ret;
   }
   std::array<glm::dvec3, 3> get_points_ndvec3() const {
-    return sqt_impl::sqt_get_points_ndvec3(data_);
+    std::array<glm::dvec3, 3> ret;
+    sqt_impl::sqt_get_points_ndvec3(data_, ret[0], ret[1], ret[2]);
+    return ret;
   }
   glm::vec3 get_midpoint_nvec3() const {
     std::array<glm::vec3, 3> ret;

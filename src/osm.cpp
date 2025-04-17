@@ -146,7 +146,7 @@ struct osm_reader {
           lon += lono;
           double latitude = .000000001 * (block.lat_offset() + (block.granularity() * lat));
           double longitude = .000000001 * (block.lon_offset() + (block.granularity() * lon));
-          positions.emplace(id, sqt(conv(glm::dvec2{longitude / 180.0 * M_PI, latitude / 180.0 * M_PI}), 15));
+          positions.emplace(id, sqt(conv(glm::dvec2{longitude / 180.0 * M_PI, latitude / 180.0 * M_PI}), 10));
         }
       }
     }
