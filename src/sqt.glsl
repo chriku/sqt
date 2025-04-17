@@ -1,4 +1,5 @@
 #ifdef __cplusplus
+#include <array>
 #include <cstdint>
 #include <glm/glm.hpp>
 #include <initializer_list>
@@ -8,18 +9,21 @@
 #define INLINE inline
 #define CONSTEXPR constexpr
 #define OUT(v, n) v& n
-// #define assume(X) [[assume(X)]]
-#define assume(X) assert(X)
+#define assume(X) [[assume(X)]]
+// #define assume(X) assert(X)
+#define retarray(T, n) std::array<T, n>
 namespace sqt_impl {
   using namespace glm;
 #else
 #define CPP(X)
 #define GLSL(X) X
+#define CONST_INLINE
 #define INLINE
 #define CONSTEXPR const
 #define OUT(v, n) out v n
 #define assert(X)
 #define assume(X)
+#define retarray(T, n) T[n]
 #endif
   struct sqt_t {
     CPP(sqt_t() = delete;)
@@ -151,21 +155,23 @@ CONSTEXPR uint8_t direction_center = uint8_t(3);
     assume(ret < 20);
     return ret;
   }
-  INLINE void sqt_set_count(OUT(sqt_t, v), uint32_t c) {
+  CONST_INLINE sqt_t sqt_set_count(sqt_t v, uint32_t c) {
     assert(c <= minor_count);
     assume(c <= minor_count);
     v._data = (v._data & inv_count_mask & (inv_minor_mask | ((uint64_t(1) << (c * 2)) - 1))) | (uint64_t(c) << count_offset);
+    return v;
   }
-  INLINE void sqt_set_major(OUT(sqt_t, v), uint32_t m) {
+  CONST_INLINE sqt_t sqt_set_major(sqt_t v, uint32_t m) {
     assert(m < major_count);
     assume(m < major_count);
     v._data = (v._data & inv_major_mask) | (uint64_t(m) << major_offset);
+    return v;
   }
   CONST_INLINE sqt_t sqt_add_minor(sqt_t v, uint32_t m) {
     uint32_t c = sqt_count(v);
     assert(c <= minor_count);
     assume(c <= minor_count);
-    sqt_set_count(v, c + 1);
+    v = sqt_set_count(v, c + 1);
     assert(m < 4);
     assume(m < 4);
     v._data = v._data | (uint64_t(m & 0x3) << uint64_t(c * 2));
@@ -180,7 +186,7 @@ CONSTEXPR uint8_t direction_center = uint8_t(3);
     sqt_t ret = sqt_new();
     uint target_primitive = primitive_table[sqt_major(v)][side];
     assume(target_primitive < 20);
-    sqt_set_major(ret, target_primitive);
+    ret = sqt_set_major(ret, target_primitive);
     for (uint32_t i = 0; i < sqt_count(v); i++) {
       if (sqt_major(v) > 4 && target_primitive > 4 && sqt_major(v) < 15 && target_primitive < 15) {
         if (side == 2) {
@@ -237,7 +243,7 @@ CONSTEXPR uint8_t direction_center = uint8_t(3);
     sqt_t n[3] = {sqt_new(), sqt_new(), sqt_new()};
     bool is_good[3] = {false, false, false};
     sqt_t current = sqt_new();
-    sqt_set_major(current, sqt_major(v));
+    current = sqt_set_major(current, sqt_major(v));
     uint32_t current_state = 0;
     for (uint32_t i = 0; i < sqt_count(v); i++) {
       uint32_t next = sqt_minor(v, i);
@@ -313,7 +319,7 @@ CONSTEXPR uint8_t direction_center = uint8_t(3);
 
   CONST_INLINE dvec3 sqt_get_point_dvec3(uint i) {
     dvec2 p = dvec2(vertex[i] + dvec2(PI, PI / 2));
-    return dvec3(sin(p.y) * cos(p.x), sin(p.y) * sin(p.x), cos(p.y));
+    return dvec3(sin(float(p.y)) * cos(float(p.x)), sin(float(p.y)) * sin(float(p.x)), cos(float(p.y)));
   }
   CONST_INLINE dvec3 sqt_cut_edge_dvec3(dvec3 a, dvec3 b) {
     return (a + b) / 2.0;
@@ -324,7 +330,7 @@ CONSTEXPR uint8_t direction_center = uint8_t(3);
 
   CONST_INLINE dvec3 sqt_get_point_ndvec3(uint i) {
     dvec2 p = dvec2(vertex[i] + dvec2(PI, PI / 2));
-    return dvec3(sin(p.y) * cos(p.x), sin(p.y) * sin(p.x), cos(p.y));
+    return dvec3(sin(float(p.y)) * cos(float(p.x)), sin(float(p.y)) * sin(float(p.x)), cos(float(p.y)));
   }
   CONST_INLINE dvec3 sqt_cut_edge_ndvec3(dvec3 a, dvec3 b) {
     return normalize((a + b) / 2.0);
@@ -337,19 +343,18 @@ CONSTEXPR uint8_t direction_center = uint8_t(3);
   }
 
 #define IMPL_IO(name, T)                                                                                                                   \
-  INLINE void sqt_get_point_subdiv_##name(uint minor, OUT(T, a), OUT(T, b), OUT(T, c)) {                                                   \
-    T oa = a;                                                                                                                              \
-    T ob = b;                                                                                                                              \
-    T oc = c;                                                                                                                              \
+  CONST_INLINE retarray(T, 3) sqt_get_point_subdiv_##name(uint minor, T oa, T ob, T oc) {                                                  \
+    retarray(T, 3) ret = {oa, ob, oc};                                                                                                     \
     assert(minor < 4);                                                                                                                     \
     if (minor != 0)                                                                                                                        \
-      a = sqt_cut_edge_##name(ob, oc);                                                                                                     \
+      ret[0] = sqt_cut_edge_##name(ob, oc);                                                                                                \
     if (minor != 1)                                                                                                                        \
-      c = sqt_cut_edge_##name(oa, ob);                                                                                                     \
+      ret[2] = sqt_cut_edge_##name(oa, ob);                                                                                                \
     if (minor != 2)                                                                                                                        \
-      b = sqt_cut_edge_##name(oa, oc);                                                                                                     \
+      ret[1] = sqt_cut_edge_##name(oa, oc);                                                                                                \
+    return ret;                                                                                                                            \
   }                                                                                                                                        \
-  INLINE void sqt_get_points_##name(sqt_t v, OUT(T, xa), OUT(T, xb), OUT(T, xc)) {                                                         \
+  CONST_INLINE retarray(T, 3) sqt_get_points_##name(sqt_t v) {                                                                             \
     uint major = sqt_major(v);                                                                                                             \
     assume(major < 20);                                                                                                                    \
     T a = sqt_get_point_##name(index_table[major][0]);                                                                                     \
@@ -359,18 +364,17 @@ CONSTEXPR uint8_t direction_center = uint8_t(3);
     assume(count < minor_count);                                                                                                           \
     for (uint i = 0; i < count; i++) {                                                                                                     \
       uint minor = sqt_minor(v, i);                                                                                                        \
-      sqt_get_point_subdiv_##name(minor, a, b, c);                                                                                         \
+      retarray(T, 3) subdiv = sqt_get_point_subdiv_##name(minor, a, b, c);                                                                 \
+      a = subdiv[0];                                                                                                                       \
+      b = subdiv[1];                                                                                                                       \
+      c = subdiv[2];                                                                                                                       \
     }                                                                                                                                      \
-    xa = a;                                                                                                                                \
-    xb = b;                                                                                                                                \
-    xc = c;                                                                                                                                \
+    retarray(T, 3) ret = {a, b, c};                                                                                                        \
+    return ret;                                                                                                                            \
   }                                                                                                                                        \
   CONST_INLINE T sqt_get_midpoint_##name(sqt_t v) {                                                                                        \
-    T a;                                                                                                                                   \
-    T b;                                                                                                                                   \
-    T c;                                                                                                                                   \
-    sqt_get_points_##name(v, a, b, c);                                                                                                     \
-    return sqt_calc_midpoint_##name(a, b, c);                                                                                              \
+    retarray(T, 3) vals = sqt_get_points_##name(v);                                                                                        \
+    return sqt_calc_midpoint_##name(vals[0], vals[1], vals[2]);                                                                            \
   }                                                                                                                                        \
   CONST_INLINE T sqt_get_major_midpoint_##name(uint major) {                                                                               \
     return sqt_calc_midpoint_##name(sqt_get_point_##name(index_table[major][0]),                                                           \
@@ -398,21 +402,15 @@ CONSTEXPR uint8_t direction_center = uint8_t(3);
           distance = d;
         }
       }
-      sqt_set_major(v, major);
+      v = sqt_set_major(v, major);
     }
     for (uint i = 0; i < granularity; i++) {
-      dvec3 oa;
-      dvec3 ob;
-      dvec3 oc;
-      sqt_get_points_ndvec3(v, oa, ob, oc);
+      retarray(dvec3, 3) p = sqt_get_points_ndvec3(v);
       double distance = 1000;
       uint minor = 0;
       for (uint i = 0; i < 4; i++) {
-        dvec3 a = oa;
-        dvec3 b = ob;
-        dvec3 c = oc;
-        sqt_get_point_subdiv_ndvec3(i, a, b, c);
-        double d = sqt_distance_ndvec3(pos, sqt_calc_midpoint_ndvec3(a, b, c));
+        retarray(dvec3, 3) sd = sqt_get_point_subdiv_ndvec3(i, p[0], p[1], p[2]);
+        double d = sqt_distance_ndvec3(pos, sqt_calc_midpoint_ndvec3(sd[0], sd[1], sd[2]));
         assume(d < 10);
         if (d < distance) {
           minor = i;

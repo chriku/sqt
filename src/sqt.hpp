@@ -9,14 +9,14 @@ struct sqt {
   inline sqt() : data_(sqt_impl::sqt_new()) {}
   inline sqt(glm::dvec3 pos, sqt_impl::uint granularity) : data_(sqt_impl::sqt_from_point_ndvec3(pos, granularity)) {}
   inline sqt(uint8_t major, std::initializer_list<size_t> minors) : data_(sqt_impl::sqt_new()) {
-    sqt_impl::sqt_set_major(data_, major);
+    data_ = sqt_impl::sqt_set_major(data_, major);
     for (auto m : minors) {
       assert(sqt_impl::sqt_count(data_) < sqt_impl::minor_count);
       data_ = sqt_impl::sqt_add_minor(data_, m);
     }
   }
   inline sqt(uint8_t major, auto minors) : data_(sqt_impl::sqt_new()) {
-    sqt_impl::sqt_set_major(data_, major);
+    data_ = sqt_impl::sqt_set_major(data_, major);
     for (auto m : minors) {
       assert(sqt_impl::sqt_count(data_) < sqt_impl::minor_count);
       data_ = sqt_impl::sqt_add_minor(data_, m);
@@ -32,14 +32,14 @@ struct sqt {
     return sqt_impl::sqt_minor(data_, i);
   }
   void set_major(uint32_t v) {
-    return sqt_impl::sqt_set_major(data_, v);
+    data_ = sqt_impl::sqt_set_major(data_, v);
   }
   sqt add_minor(uint32_t v) const {
     return sqt_impl::sqt_add_minor(data_, v);
   }
   sqt counted(uint32_t v) const {
     sqt d2 = *this;
-    sqt_impl::sqt_set_count(d2.data_, v);
+    d2.data_ = sqt_impl::sqt_set_count(d2.data_, v);
     return d2;
   }
   auto operator<=>(const sqt&) const = default;
@@ -134,19 +134,13 @@ struct sqt {
     return iterator{data_, uint8_t(sqt_impl::sqt_count(data_))};
   }
   std::array<glm::vec3, 3> get_points_vec3() const {
-    std::array<glm::vec3, 3> ret;
-    sqt_impl::sqt_get_points_vec3(data_, ret[0], ret[1], ret[2]);
-    return ret;
+    return sqt_impl::sqt_get_points_vec3(data_);
   }
   std::array<glm::vec3, 3> get_points_nvec3() const {
-    std::array<glm::vec3, 3> ret;
-    sqt_impl::sqt_get_points_nvec3(data_, ret[0], ret[1], ret[2]);
-    return ret;
+    return sqt_impl::sqt_get_points_nvec3(data_);
   }
   std::array<glm::dvec3, 3> get_points_ndvec3() const {
-    std::array<glm::dvec3, 3> ret;
-    sqt_impl::sqt_get_points_ndvec3(data_, ret[0], ret[1], ret[2]);
-    return ret;
+    return sqt_impl::sqt_get_points_ndvec3(data_);
   }
   glm::vec3 get_midpoint_nvec3() const {
     std::array<glm::vec3, 3> ret;
