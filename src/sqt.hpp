@@ -7,6 +7,7 @@
 
 struct sqt {
   inline sqt() : data_(sqt_impl::sqt_new()) {}
+  inline sqt(glm::vec3 pos, sqt_impl::uint granularity) : data_(sqt_impl::sqt_from_point_nvec3(pos, granularity)) {}
   inline sqt(glm::dvec3 pos, sqt_impl::uint granularity) : data_(sqt_impl::sqt_from_point_ndvec3(pos, granularity)) {}
   inline sqt(uint8_t major, std::initializer_list<size_t> minors) : data_(sqt_impl::sqt_new()) {
     data_ = sqt_impl::sqt_set_major(data_, major);
@@ -22,33 +23,36 @@ struct sqt {
       data_ = sqt_impl::sqt_add_minor(data_, m);
     }
   }
-  uint32_t count() const {
+  [[gnu::const]] inline uint32_t count() const {
     return sqt_impl::sqt_count(data_);
   }
-  uint32_t major() const {
+  [[gnu::const]] inline uint32_t major() const {
     return sqt_impl::sqt_major(data_);
   }
-  uint32_t minor(uint32_t i) const {
+  [[gnu::const]] inline uint32_t minor(uint32_t i) const {
     return sqt_impl::sqt_minor(data_, i);
   }
-  void set_major(uint32_t v) {
+  inline void set_major(uint32_t v) {
     data_ = sqt_impl::sqt_set_major(data_, v);
   }
-  sqt add_minor(uint32_t v) const {
+  [[gnu::const]] inline sqt add_minor(uint32_t v) const {
     return sqt_impl::sqt_add_minor(data_, v);
   }
-  sqt counted(uint32_t v) const {
+  [[gnu::const]] inline sqt counted(uint32_t v) const {
     sqt d2 = *this;
     d2.data_ = sqt_impl::sqt_set_count(d2.data_, v);
     return d2;
   }
   auto operator<=>(const sqt&) const = default;
-  std::array<sqt, 3> get_neighbors() const {
+  [[gnu::const]] inline std::array<sqt, 3> get_neighbors() const {
     std::array<sqt, 3> ret;
-    sqt_impl::sqt_get_neighbors(data_, ret[0].data_, ret[1].data_, ret[2].data_);
+    auto [n0, n1, n2] = sqt_impl::sqt_get_neighbors(data_);
+    ret[0].data_ = n0;
+    ret[1].data_ = n1;
+    ret[2].data_ = n2;
     return ret;
   }
-  bool is_neighbor(sqt other) const {
+  [[gnu::const]] inline bool is_neighbor(sqt other) const {
     assert(other.count() >= count());
     auto [a, b, c] = other.get_neighbors();
     if (*this == a.counted(count()))
@@ -127,26 +131,50 @@ struct sqt {
       return ((*this) <=> o) == std::strong_ordering::equal;
     }
   };
-  inline iterator begin() const {
+  [[gnu::const]] inline iterator begin() const {
     return iterator{data_, 0};
   }
-  inline iterator end() const {
+  [[gnu::const]] inline iterator end() const {
     return iterator{data_, uint8_t(sqt_impl::sqt_count(data_))};
   }
-  std::array<glm::vec3, 3> get_points_vec3() const {
+  [[gnu::const]] inline std::array<glm::vec3, 3> get_points_vec3() const {
     return sqt_impl::sqt_get_points_vec3(data_);
   }
-  std::array<glm::vec3, 3> get_points_nvec3() const {
+  [[gnu::const]] inline std::array<glm::vec3, 3> get_points_nvec3() const {
     return sqt_impl::sqt_get_points_nvec3(data_);
   }
-  std::array<glm::dvec3, 3> get_points_ndvec3() const {
+  [[gnu::const]] inline std::array<glm::dvec3, 3> get_points_dvec3() const {
+    return sqt_impl::sqt_get_points_dvec3(data_);
+  }
+  [[gnu::const]] inline std::array<glm::dvec3, 3> get_points_ndvec3() const {
     return sqt_impl::sqt_get_points_ndvec3(data_);
   }
-  glm::vec3 get_midpoint_nvec3() const {
+  [[gnu::const]] inline glm::vec3 get_midpoint_vec3() const {
+    std::array<glm::vec3, 3> ret;
+    return sqt_impl::sqt_get_midpoint_vec3(data_);
+  }
+  [[gnu::const]] inline glm::vec3 get_midpoint_nvec3() const {
     std::array<glm::vec3, 3> ret;
     return sqt_impl::sqt_get_midpoint_nvec3(data_);
   }
-  double distance_ndvec3(sqt other) const {
+  [[gnu::const]] inline glm::vec3 get_midpoint_dvec3() const {
+    std::array<glm::vec3, 3> ret;
+    return sqt_impl::sqt_get_midpoint_dvec3(data_);
+  }
+  [[gnu::const]] inline glm::vec3 get_midpoint_ndvec3() const {
+    std::array<glm::vec3, 3> ret;
+    return sqt_impl::sqt_get_midpoint_ndvec3(data_);
+  }
+  [[gnu::const]] inline double distance_vec3(sqt other) const {
+    return glm::length(sqt_impl::sqt_get_midpoint_vec3(data_) - sqt_impl::sqt_get_midpoint_vec3(other.data_));
+  }
+  [[gnu::const]] inline double distance_nvec3(sqt other) const {
+    return glm::length(sqt_impl::sqt_get_midpoint_nvec3(data_) - sqt_impl::sqt_get_midpoint_nvec3(other.data_));
+  }
+  [[gnu::const]] inline double distance_dvec3(sqt other) const {
+    return glm::length(sqt_impl::sqt_get_midpoint_dvec3(data_) - sqt_impl::sqt_get_midpoint_dvec3(other.data_));
+  }
+  [[gnu::const]] inline double distance_ndvec3(sqt other) const {
     return glm::length(sqt_impl::sqt_get_midpoint_ndvec3(data_) - sqt_impl::sqt_get_midpoint_ndvec3(other.data_));
   }
 
@@ -165,7 +193,7 @@ template <> struct std::formatter<sqt> {
     return it;
   }
 
-  auto format(sqt v, std::format_context& ctx) const {
+  inline auto format(sqt v, std::format_context& ctx) const {
     std::format_to(ctx.out(), "sqt_t({}, {{", v.major());
     for (size_t i = 0; i < v.count(); i++) {
       if (i)

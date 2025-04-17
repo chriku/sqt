@@ -2,6 +2,7 @@
 #include <cmath>
 #include <fileformat.pb.h>
 #include <filesystem>
+#include <forward_list>
 #include <fstream>
 #include <list>
 #include <osmformat.pb.h>
@@ -110,33 +111,32 @@ struct osm_reader {
         string_coastline = i;
     }
     std::vector<std::pair<uint64_t, uint64_t>> node_pairs;
-    std::map<uint64_t, sqt> positions;
+    std::map<uint64_t, sqt> positions; //(arena);
     for (auto group : block.primitivegroup()) {
-      if (string_natural && string_coastline)
+      if (string_natural && string_coastline) {
         for (auto way : group.ways()) {
           for (auto [i, k] : way.keys() | std::views::enumerate)
-            if (k == string_natural.value())
-              if (way.vals(i) == string_coastline.value()) {
-                // std::println("COAST {}", way.id());
-                // if (way.id() == 224779210ULL)
-                {
-                  std::optional<uint64_t> prev;
-                  uint64_t id = 0;
-                  for (auto r : way.refs()) {
-                    id += r;
-                    if (prev) {
-                      node_pairs.emplace_back(prev.value(), id);
-                    }
-                    prev = id;
+            if (k == *string_natural)
+              if (way.vals(i) == *string_coastline) {
+                uint64_t id = 0;
+                for (auto r : way.refs()) {
+                  if (id) {
+                    node_pairs.emplace_back(id, id + r);
                   }
+                  id += r;
                 }
               }
         }
+      }
       for (auto node : group.nodes()) {
         std::println("Unimplemented non-dense node: {}", node.id());
         exit(1);
       }
       if (group.has_dense()) {
+        double offlat = (.000000001 / 180.0 * M_PI) * block.lat_offset();
+        double mullat = (.000000001 / 180.0 * M_PI) * block.granularity();
+        double offlon = (.000000001 / 180.0 * M_PI) * block.lon_offset();
+        double mullon = (.000000001 / 180.0 * M_PI) * block.granularity();
         double lat = 0;
         double lon = 0;
         uint64_t id = 0;
@@ -144,20 +144,17 @@ struct osm_reader {
           id += ido;
           lat += lato;
           lon += lono;
-          double latitude = .000000001 * (block.lat_offset() + (block.granularity() * lat));
-          double longitude = .000000001 * (block.lon_offset() + (block.granularity() * lon));
-          positions.emplace(id, sqt(conv(glm::dvec2{longitude / 180.0 * M_PI, latitude / 180.0 * M_PI}), 10));
+          positions.emplace(id, sqt(conv(glm::dvec2{offlon + (mullon * lon), offlat + (mullat * lat)}), 10));
         }
       }
     }
     {
       std::unique_lock lock(positions_mutex);
-      global_positions.merge(positions);
+      global_positions.merge(std::move(positions));
     }
     {
       std::unique_lock lock(node_pairs_mutex);
-      for (auto& p : node_pairs)
-        global_node_pairs.emplace_back(p);
+      global_node_pairs.insert(global_node_pairs.end(), node_pairs.begin(), node_pairs.end());
     }
   }
   template <auto reader> void run_read(OSMPBF::BlobHeader header, uint64_t file_pos) {
@@ -198,13 +195,17 @@ void read_osm(sqt_tree<tile>& tree) {
   std::println("Marking coasts...");
   {
     auto start2 = std::chrono::steady_clock::now();
-    size_t thread_count = 32;
-    size_t point_count = (r.global_node_pairs.size() / thread_count) + thread_count;
+    size_t point_count = 65536;
+    size_t thread_count = (r.global_node_pairs.size() / point_count) + 5;
     size_t start = 0;
     std::vector<std::jthread> threads;
     std::mutex mtx;
+    std::counting_semaphore<2147483647> sema(std::jthread::hardware_concurrency() * 1.5);
+    std::println("STARTING {} threads", thread_count);
     for (size_t i = 0; i < thread_count; i++) {
       threads.emplace_back([&, start, point_count] {
+        sema.acquire();
+        auto start1 = std::chrono::steady_clock::now();
         std::set<sqt> fin;
         for (auto [curi, bi] : r.global_node_pairs | std::views::drop(start) | std::views::take(point_count)) {
           std::set<sqt> av;
@@ -240,9 +241,19 @@ void read_osm(sqt_tree<tile>& tree) {
             fin.merge(av);
           }
         }
+        auto start2 = std::chrono::steady_clock::now();
         std::unique_lock lock(mtx);
+        auto start3 = std::chrono::steady_clock::now();
         for (auto v : fin)
           tree.set(v, tile::coast);
+        /*std::println("TEXIT {} PATH={}s; QUEUEING={}s; INSERT={}s; POINTS={} from {}",
+            start / point_count,
+            std::chrono::duration_cast<std::chrono::duration<double>>(start2 - start1).count(),
+            std::chrono::duration_cast<std::chrono::duration<double>>(start3 - start2).count(),
+            std::chrono::duration_cast<std::chrono::duration<double>>(std::chrono::steady_clock::now() - start3).count(),
+            fin.size(),
+            point_count);*/
+        sema.release(1);
       });
       start += point_count;
     }

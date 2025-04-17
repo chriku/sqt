@@ -9,8 +9,8 @@
 #define INLINE inline
 #define CONSTEXPR constexpr
 #define OUT(v, n) v& n
-#define assume(X) [[assume(X)]]
-// #define assume(X) assert(X)
+// #define assume(X) [[assume(X)]]
+#define assume(X) assert(X)
 #define retarray(T, n) std::array<T, n>
 namespace sqt_impl {
   using namespace glm;
@@ -239,8 +239,8 @@ CONSTEXPR uint8_t direction_center = uint8_t(3);
     }
     return ret;
   }
-  INLINE void sqt_get_neighbors(sqt_t v, OUT(sqt_t, n0), OUT(sqt_t, n1), OUT(sqt_t, n2)) {
-    sqt_t n[3] = {sqt_new(), sqt_new(), sqt_new()};
+  CONST_INLINE retarray(sqt_t, 3) sqt_get_neighbors(sqt_t v) {
+    retarray(sqt_t, 3) n = {sqt_new(), sqt_new(), sqt_new()};
     bool is_good[3] = {false, false, false};
     sqt_t current = sqt_new();
     current = sqt_set_major(current, sqt_major(v));
@@ -290,9 +290,7 @@ CONSTEXPR uint8_t direction_center = uint8_t(3);
       n[1] = sqt_transform_to_adjacent(v, 1);
     if (!is_good[2])
       n[2] = sqt_transform_to_adjacent(v, 2);
-    n0 = n[0];
-    n1 = n[1];
-    n2 = n[2];
+    return n;
   }
 
   CONST_INLINE vec3 sqt_get_point_vec3(uint i) {
@@ -305,6 +303,9 @@ CONSTEXPR uint8_t direction_center = uint8_t(3);
   CONST_INLINE vec3 sqt_calc_midpoint_vec3(vec3 a, vec3 b, vec3 c) {
     return (a + b + c) / 3.0f;
   }
+  CONST_INLINE float sqt_distance_vec3(vec3 a, vec3 b) {
+    return length(a - b);
+  }
 
   CONST_INLINE vec3 sqt_get_point_nvec3(uint i) {
     vec2 p = vec2(vertex[i] + dvec2(PI, PI / 2));
@@ -316,6 +317,9 @@ CONSTEXPR uint8_t direction_center = uint8_t(3);
   CONST_INLINE vec3 sqt_calc_midpoint_nvec3(vec3 a, vec3 b, vec3 c) {
     return normalize((a + b + c) / 3.0f);
   }
+  CONST_INLINE float sqt_distance_nvec3(vec3 a, vec3 b) {
+    return length(a - b);
+  }
 
   CONST_INLINE dvec3 sqt_get_point_dvec3(uint i) {
     dvec2 p = dvec2(vertex[i] + dvec2(PI, PI / 2));
@@ -326,6 +330,9 @@ CONSTEXPR uint8_t direction_center = uint8_t(3);
   }
   CONST_INLINE dvec3 sqt_calc_midpoint_dvec3(dvec3 a, dvec3 b, dvec3 c) {
     return (a + b + c) / 3.0;
+  }
+  CONST_INLINE double sqt_distance_dvec3(dvec3 a, dvec3 b) {
+    return length(a - b);
   }
 
   CONST_INLINE dvec3 sqt_get_point_ndvec3(uint i) {
@@ -342,7 +349,7 @@ CONSTEXPR uint8_t direction_center = uint8_t(3);
     return length(a - b);
   }
 
-#define IMPL_IO(name, T)                                                                                                                   \
+#define IMPL_IO(name, ET, T)                                                                                                               \
   CONST_INLINE retarray(T, 3) sqt_get_point_subdiv_##name(uint minor, T oa, T ob, T oc) {                                                  \
     retarray(T, 3) ret = {oa, ob, oc};                                                                                                     \
     assert(minor < 4);                                                                                                                     \
@@ -380,47 +387,45 @@ CONSTEXPR uint8_t direction_center = uint8_t(3);
     return sqt_calc_midpoint_##name(sqt_get_point_##name(index_table[major][0]),                                                           \
         sqt_get_point_##name(index_table[major][1]),                                                                                       \
         sqt_get_point_##name(index_table[major][2]));                                                                                      \
+  }                                                                                                                                        \
+  CONST_INLINE sqt_t sqt_from_point_##name(T pos, uint granularity) {                                                                      \
+    assert(granularity <= minor_count);                                                                                                    \
+    assume(granularity <= minor_count);                                                                                                    \
+    sqt_t v = sqt_new();                                                                                                                   \
+    {                                                                                                                                      \
+      uint major = 0;                                                                                                                      \
+      ET distance = sqt_distance_##name(pos, sqt_get_major_midpoint_##name(0));                                                            \
+      for (uint i = 1; i < 20; i++) {                                                                                                      \
+        ET d = sqt_distance_##name(pos, sqt_get_major_midpoint_##name(i));                                                                 \
+        if (d < distance) {                                                                                                                \
+          major = i;                                                                                                                       \
+          distance = d;                                                                                                                    \
+        }                                                                                                                                  \
+      }                                                                                                                                    \
+      v = sqt_set_major(v, major);                                                                                                         \
+    }                                                                                                                                      \
+    for (uint i = 0; i < granularity; i++) {                                                                                               \
+      retarray(T, 3) p = sqt_get_points_##name(v);                                                                                         \
+      retarray(T, 3) sd = sqt_get_point_subdiv_##name(0, p[0], p[1], p[2]);                                                                \
+      ET distance = sqt_distance_##name(pos, sqt_calc_midpoint_##name(sd[0], sd[1], sd[2]));                                               \
+      uint minor = 0;                                                                                                                      \
+      for (uint i = 1; i < 4; i++) {                                                                                                       \
+        retarray(T, 3) sd = sqt_get_point_subdiv_##name(i, p[0], p[1], p[2]);                                                              \
+        ET d = sqt_distance_##name(pos, sqt_calc_midpoint_##name(sd[0], sd[1], sd[2]));                                                    \
+        if (d < distance) {                                                                                                                \
+          minor = i;                                                                                                                       \
+          distance = d;                                                                                                                    \
+        }                                                                                                                                  \
+      }                                                                                                                                    \
+      v = sqt_add_minor(v, minor);                                                                                                         \
+    }                                                                                                                                      \
+    return v;                                                                                                                              \
   }
 
-  IMPL_IO(vec3, vec3)
-  IMPL_IO(nvec3, vec3)
-  IMPL_IO(dvec3, dvec3)
-  IMPL_IO(ndvec3, dvec3)
-
-  CONST_INLINE sqt_t sqt_from_point_ndvec3(dvec3 pos, uint granularity) {
-    assert(granularity <= minor_count);
-    assume(granularity <= minor_count);
-    sqt_t v = sqt_new();
-    {
-      double distance = 1000;
-      uint major = 0;
-      for (uint i = 0; i < 20; i++) {
-        double d = sqt_distance_ndvec3(pos, sqt_get_major_midpoint_ndvec3(i));
-        assume(d < 10);
-        if (d < distance) {
-          major = i;
-          distance = d;
-        }
-      }
-      v = sqt_set_major(v, major);
-    }
-    for (uint i = 0; i < granularity; i++) {
-      retarray(dvec3, 3) p = sqt_get_points_ndvec3(v);
-      double distance = 1000;
-      uint minor = 0;
-      for (uint i = 0; i < 4; i++) {
-        retarray(dvec3, 3) sd = sqt_get_point_subdiv_ndvec3(i, p[0], p[1], p[2]);
-        double d = sqt_distance_ndvec3(pos, sqt_calc_midpoint_ndvec3(sd[0], sd[1], sd[2]));
-        assume(d < 10);
-        if (d < distance) {
-          minor = i;
-          distance = d;
-        }
-      }
-      v = sqt_add_minor(v, minor);
-    }
-    return v;
-  }
+  IMPL_IO(vec3, float, vec3)
+  IMPL_IO(nvec3, float, vec3)
+  IMPL_IO(dvec3, double, dvec3)
+  IMPL_IO(ndvec3, double, dvec3)
 
 // INLINE vec3 sqt_get_position(sqt_t v) {}
 #ifdef __cplusplus
