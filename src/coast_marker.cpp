@@ -9,7 +9,7 @@ void mark_coast(sqt_tree<tile>& tree) {
   auto fl = tree.first_leaf(sqt(0, {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}));
   assert(fl != nullptr);
   if (*fl != tile::undefined) {
-    std::println("Invalid zero, zero");
+    std::println("Invalid zero, zero: {}", size_t(*fl));
     exit(1);
   }
   *fl = tile::water;

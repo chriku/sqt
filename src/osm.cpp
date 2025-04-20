@@ -144,7 +144,7 @@ struct osm_reader {
           id += ido;
           lat += lato;
           lon += lono;
-          positions.emplace(id, sqt(conv(glm::dvec2{offlon + (mullon * lon), offlat + (mullat * lat)}), 10));
+          positions.emplace(id, sqt(conv(glm::dvec2{offlon + (mullon * lon), offlat + (mullat * lat)}), 15));
         }
       }
     }
@@ -219,7 +219,7 @@ void read_osm(sqt_tree<tile>& tree) {
               sqt nc = cur;
               for (auto n2 : cur.get_neighbors())
                 for (auto n : n2.get_neighbors())
-                  if (n.distance_ndvec3(b) < nc.distance_ndvec3(b)) {
+                  if (n.distance_vec3(b) < nc.distance_vec3(b)) {
                     nc = n;
                   }
               if (nc == cur)

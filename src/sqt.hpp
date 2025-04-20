@@ -7,6 +7,7 @@
 
 struct sqt {
   inline sqt() : data_(sqt_impl::sqt_new()) {}
+  inline sqt(glm::vec2 pos, sqt_impl::uint granularity) : data_(sqt_impl::sqt_from_point_latlonf({pos.x, pos.y}, granularity)) {}
   inline sqt(glm::vec3 pos, sqt_impl::uint granularity) : data_(sqt_impl::sqt_from_point_nvec3(pos, granularity)) {}
   inline sqt(glm::dvec3 pos, sqt_impl::uint granularity) : data_(sqt_impl::sqt_from_point_ndvec3(pos, granularity)) {}
   inline sqt(uint8_t major, std::initializer_list<size_t> minors) : data_(sqt_impl::sqt_new()) {

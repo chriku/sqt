@@ -349,6 +349,40 @@ CONSTEXPR uint8_t direction_center = uint8_t(3);
     return length(a - b);
   }
 
+  CONST_INLINE vec2 sqt_get_point_latlonf(uint i) {
+    return vec2(vertex[i]);
+  }
+  CONST_INLINE vec2 sqt_cut_edge_latlonf(vec2 a, vec2 b) {
+    float dlon = b.x - a.x;
+    float dx = cos(b.y) * cos(dlon);
+    float dy = cos(b.y) * sin(dlon);
+    vec2 ret;
+    ret.y = atan2(sin(a.y) + sin(b.y), sqrt((cos(a.y) + dx) * (cos(a.y) + dx) + dy * dy));
+    ret.x = a.x + atan2(dy, cos(a.y) + dx);
+    if (ret.x < -PI)
+      ret.x += PI * 2;
+    if (ret.x > PI)
+      ret.x -= PI * 2;
+    return ret;
+  }
+  CONST_INLINE vec3 latlonf_export(vec2 p) {
+    p += vec2(M_PI, M_PI / 2);
+    return {sin(p.y) * cos(p.x), sin(p.y) * sin(p.x), cos(p.y)};
+  }
+  CONST_INLINE vec2 latlonf_import(vec3 p) {
+    return vec2(atan2(p.y, p.x), atan2(hypot(p.y, p.x), p.z)) - vec2(M_PI, M_PI / 2);
+  }
+  CONST_INLINE vec2 sqt_calc_midpoint_latlonf(vec2 a, vec2 b, vec2 c) {
+    return latlonf_import((latlonf_export(a) + latlonf_export(b) + latlonf_export(c)) / 3.0f);
+  }
+  CONST_INLINE float sqt_distance_latlonf(vec2 a, vec2 b) {
+    float dlat = (b.y - a.y);
+    float dlon = (b.x - a.x);
+
+    float x = sin(dlat / 2) * sin(dlat / 2) + cos(a.y) * cos(b.y) * sin(dlon / 2) * sin(dlon / 2);
+    return 2 * atan2(sqrt(x), sqrt(1 - x));
+  }
+
 #define IMPL_IO(name, ET, T)                                                                                                               \
   CONST_INLINE retarray(T, 3) sqt_get_point_subdiv_##name(uint minor, T oa, T ob, T oc) {                                                  \
     retarray(T, 3) ret = {oa, ob, oc};                                                                                                     \
@@ -426,6 +460,7 @@ CONSTEXPR uint8_t direction_center = uint8_t(3);
   IMPL_IO(nvec3, float, vec3)
   IMPL_IO(dvec3, double, dvec3)
   IMPL_IO(ndvec3, double, dvec3)
+  IMPL_IO(latlonf, float, vec2)
 
 // INLINE vec3 sqt_get_position(sqt_t v) {}
 #ifdef __cplusplus

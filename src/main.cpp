@@ -274,9 +274,9 @@ TEST_CASE("neighbors") {
 }
 TEST_CASE("distance") {
   for (sqt v : bunch_of_triangles()) {
-    if (sqt(v.get_midpoint_nvec3(), v.count()) != v)
-      std::println("DIFF {} from {} at {}", sqt(v.get_midpoint_nvec3(), v.count()), v, glm::to_string(v.get_midpoint_nvec3()));
-    CHECK(sqt(v.get_midpoint_nvec3(), v.count()) == v);
+    if (sqt(v.get_midpoint_ndvec3(), v.count()) != v)
+      std::println("DIFF {} from {} at {}", sqt(v.get_midpoint_ndvec3(), v.count()), v, glm::to_string(v.get_midpoint_ndvec3()));
+    CHECK(sqt(v.get_midpoint_ndvec3(), v.count()) == v);
   }
 }
 #endif
