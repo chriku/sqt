@@ -15,7 +15,14 @@
 using namespace std::placeholders; // for _1, _2, _3...
 using namespace std::literals;
 
-glm::dvec3 conv(glm::dvec2 p);
+// glm::dvec3 conv(glm::dvec2 p);
+glm::tvec3<__float128, glm::highp> conv(glm::tvec2<__float128, glm::highp> p) {
+  p += glm::tvec2<__float128, glm::highp>{M_PI, M_PI / 2};
+  return {sin(p.y) * cos(p.x), sin(p.y) * sin(p.x), cos(p.y)};
+}
+glm::tvec2<__float128, glm::highp> conv(glm::tvec3<__float128, glm::highp> p) {
+  return glm::dvec2{atan2(p.y, p.x), atan2(hypot(p.y, p.x), p.z)} - glm::dvec2{M_PI, M_PI / 2};
+}
 
 struct osm_reader {
   std::string buffer;
@@ -133,18 +140,18 @@ struct osm_reader {
         exit(1);
       }
       if (group.has_dense()) {
-        double offlat = (.000000001 / 180.0 * M_PI) * block.lat_offset();
-        double mullat = (.000000001 / 180.0 * M_PI) * block.granularity();
-        double offlon = (.000000001 / 180.0 * M_PI) * block.lon_offset();
-        double mullon = (.000000001 / 180.0 * M_PI) * block.granularity();
-        double lat = 0;
-        double lon = 0;
+        __float128 offlat = (.000000001 / 180.0 * M_PI) * block.lat_offset();
+        __float128 mullat = (.000000001 / 180.0 * M_PI) * block.granularity();
+        __float128 offlon = (.000000001 / 180.0 * M_PI) * block.lon_offset();
+        __float128 mullon = (.000000001 / 180.0 * M_PI) * block.granularity();
+        __float128 lat = 0;
+        __float128 lon = 0;
         uint64_t id = 0;
         for (auto [ido, lato, lono] : std::views::zip(group.dense().id(), group.dense().lat(), group.dense().lon())) {
           id += ido;
           lat += lato;
           lon += lono;
-          positions.emplace(id, sqt(conv(glm::dvec2{offlon + (mullon * lon), offlat + (mullat * lat)}), 15));
+          positions.emplace(id, sqt(glm::dvec3(conv({offlon + (mullon * lon), offlat + (mullat * lat)})), 20));
         }
       }
     }
@@ -193,6 +200,8 @@ struct osm_reader {
 void read_osm(sqt_tree<tile>& tree) {
   osm_reader r;
   std::println("Marking coasts...");
+  static sqt focus = sqt(glm::dvec3(conv({-31.105278 / 180.0 * sqt_impl::PI, 39.6975 / 180.0 * sqt_impl::PI})), 27);
+  std::println("FOCUS {}", focus);
   {
     auto start2 = std::chrono::steady_clock::now();
     size_t point_count = 65536;
@@ -208,20 +217,18 @@ void read_osm(sqt_tree<tile>& tree) {
         auto start1 = std::chrono::steady_clock::now();
         std::set<sqt> fin;
         for (auto [curi, bi] : r.global_node_pairs | std::views::drop(start) | std::views::take(point_count)) {
-          std::set<sqt> av;
+          std::set<sqt>& av = fin;
           {
             auto cur = r.global_positions.at(curi);
             av.insert(cur);
             auto b = r.global_positions.at(bi);
-            av.insert(cur);
-            av.insert(b);
             while (cur != b) {
-              sqt nc = cur;
-              for (auto n2 : cur.get_neighbors())
-                for (auto n : n2.get_neighbors())
-                  if (n.distance_vec3(b) < nc.distance_vec3(b)) {
-                    nc = n;
-                  }
+              sqt nc = std::ranges::min(std::views::concat(std::array<sqt, 1>{cur},
+                                            (/*std::views::concat*/ (/*std::array<sqt, 1>{cur},*/ cur.get_neighbors()) |
+                                                std::views::transform([](sqt n) { return n.get_neighbors(); })) |
+                                                std::views::join),
+                  {},
+                  [&](sqt n2) { return n2.distance_vec3(b); });
               if (nc == cur)
                 break;
               cur = nc;
@@ -230,7 +237,7 @@ void read_osm(sqt_tree<tile>& tree) {
                 av.insert(n2);
             }
           }
-          {
+          if constexpr (false) {
             for (size_t i = 0; i < 0; i++) {
               std::set<sqt> next = av;
               for (auto v : av)
@@ -245,7 +252,8 @@ void read_osm(sqt_tree<tile>& tree) {
         std::unique_lock lock(mtx);
         auto start3 = std::chrono::steady_clock::now();
         for (auto v : fin)
-          tree.set(v, tile::coast);
+          if (focus.distance_ndvec3(v) < (100.0 / 12000))
+            tree.set(v, tile::coast);
         /*std::println("TEXIT {} PATH={}s; QUEUEING={}s; INSERT={}s; POINTS={} from {}",
             start / point_count,
             std::chrono::duration_cast<std::chrono::duration<double>>(start2 - start1).count(),

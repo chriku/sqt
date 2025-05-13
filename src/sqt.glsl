@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <glm/glm.hpp>
 #include <initializer_list>
+#include <utility>
 #define CPP(X) X
 #define GLSL(X)
 #define CONST_INLINE [[gnu::const]] inline
@@ -12,6 +13,7 @@
 // #define assume(X) [[assume(X)]]
 #define assume(X) assert(X)
 #define retarray(T, n) std::array<T, n>
+#define unreachable() std::unreachable();
 namespace sqt_impl {
   using namespace glm;
 #else
@@ -24,6 +26,7 @@ namespace sqt_impl {
 #define assert(X)
 #define assume(X)
 #define retarray(T, n) T[n]
+#define unreachable()
 #endif
   struct sqt_t {
     CPP(sqt_t() = delete;)
@@ -169,8 +172,8 @@ CONSTEXPR uint8_t direction_center = uint8_t(3);
   }
   CONST_INLINE sqt_t sqt_add_minor(sqt_t v, uint32_t m) {
     uint32_t c = sqt_count(v);
-    assert(c <= minor_count);
-    assume(c <= minor_count);
+    assert(c < minor_count);
+    assume(c < minor_count);
     v = sqt_set_count(v, c + 1);
     assert(m < 4);
     assume(m < 4);
@@ -187,7 +190,9 @@ CONSTEXPR uint8_t direction_center = uint8_t(3);
     uint target_primitive = primitive_table[sqt_major(v)][side];
     assume(target_primitive < 20);
     ret = sqt_set_major(ret, target_primitive);
-    for (uint32_t i = 0; i < sqt_count(v); i++) {
+    assume(sqt_count(v) <= 27);
+#pragma unroll 27
+    for (uint i = 0; i < sqt_count(v); i++) {
       if (sqt_major(v) > 4 && target_primitive > 4 && sqt_major(v) < 15 && target_primitive < 15) {
         if (side == 2) {
           switch (sqt_minor(v, i)) {
@@ -242,10 +247,12 @@ CONSTEXPR uint8_t direction_center = uint8_t(3);
   CONST_INLINE retarray(sqt_t, 3) sqt_get_neighbors(sqt_t v) {
     retarray(sqt_t, 3) n = {sqt_new(), sqt_new(), sqt_new()};
     bool is_good[3] = {false, false, false};
-    sqt_t current = sqt_new();
-    current = sqt_set_major(current, sqt_major(v));
+    sqt_t current = sqt_set_major(sqt_new(), sqt_major(v));
     uint32_t current_state = 0;
-    for (uint32_t i = 0; i < sqt_count(v); i++) {
+    uint count = sqt_count(v);
+    assume(count <= minor_count);
+#pragma unroll 27
+    for (uint i = 0; i < count; i++) {
       uint32_t next = sqt_minor(v, i);
       uint32_t per0 = permutations[current_state][0];
       uint32_t per1 = permutations[current_state][1];
@@ -271,14 +278,14 @@ CONSTEXPR uint8_t direction_center = uint8_t(3);
         break;
       case 3:
         n[per0] = sqt_add_minor(current, direction_A);
-        n[per1] = sqt_add_minor(current, direction_B);
-        n[per2] = sqt_add_minor(current, direction_C);
         is_good[per0] = true;
+        n[per1] = sqt_add_minor(current, direction_B);
         is_good[per1] = true;
+        n[per2] = sqt_add_minor(current, direction_C);
         is_good[per2] = true;
         break;
       default:
-        assert(false);
+        unreachable();
         break;
       }
       current = sqt_add_minor(current, next);
@@ -402,8 +409,8 @@ CONSTEXPR uint8_t direction_center = uint8_t(3);
     T b = sqt_get_point_##name(index_table[major][1]);                                                                                     \
     T c = sqt_get_point_##name(index_table[major][2]);                                                                                     \
     const uint count = sqt_count(v);                                                                                                       \
-    assume(count < minor_count);                                                                                                           \
-    for (uint i = 0; i < count; i++) {                                                                                                     \
+    assume(count <= minor_count);                                                                                                          \
+    _Pragma("unroll 27") for (uint i = 0; i < count; i++) {                                                                                \
       uint minor = sqt_minor(v, i);                                                                                                        \
       retarray(T, 3) subdiv = sqt_get_point_subdiv_##name(minor, a, b, c);                                                                 \
       a = subdiv[0];                                                                                                                       \
@@ -429,7 +436,7 @@ CONSTEXPR uint8_t direction_center = uint8_t(3);
     {                                                                                                                                      \
       uint major = 0;                                                                                                                      \
       ET distance = sqt_distance_##name(pos, sqt_get_major_midpoint_##name(0));                                                            \
-      for (uint i = 1; i < 20; i++) {                                                                                                      \
+      _Pragma("unroll 20") for (uint i = 1; i < 20; i++) {                                                                                 \
         ET d = sqt_distance_##name(pos, sqt_get_major_midpoint_##name(i));                                                                 \
         if (d < distance) {                                                                                                                \
           major = i;                                                                                                                       \
@@ -438,12 +445,13 @@ CONSTEXPR uint8_t direction_center = uint8_t(3);
       }                                                                                                                                    \
       v = sqt_set_major(v, major);                                                                                                         \
     }                                                                                                                                      \
-    for (uint i = 0; i < granularity; i++) {                                                                                               \
+    assume(granularity <= minor_count);                                                                                                    \
+    _Pragma("unroll 27") for (uint i = 0; i < granularity; i++) {                                                                          \
       retarray(T, 3) p = sqt_get_points_##name(v);                                                                                         \
       retarray(T, 3) sd = sqt_get_point_subdiv_##name(0, p[0], p[1], p[2]);                                                                \
       ET distance = sqt_distance_##name(pos, sqt_calc_midpoint_##name(sd[0], sd[1], sd[2]));                                               \
       uint minor = 0;                                                                                                                      \
-      for (uint i = 1; i < 4; i++) {                                                                                                       \
+      _Pragma("unroll 4") for (uint i = 1; i < 4; i++) {                                                                                   \
         retarray(T, 3) sd = sqt_get_point_subdiv_##name(i, p[0], p[1], p[2]);                                                              \
         ET d = sqt_distance_##name(pos, sqt_calc_midpoint_##name(sd[0], sd[1], sd[2]));                                                    \
         if (d < distance) {                                                                                                                \

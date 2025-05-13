@@ -8,6 +8,7 @@
 #include <generator>
 #include <glm/gtx/string_cast.hpp>
 #include <print>
+#include <random>
 #include <ranges>
 #include <set>
 
@@ -28,40 +29,39 @@ double E_RAD = 0.91843818702186776133;
 /* 10.81231696 */
 double F_RAD = 0.18871053072122403508;
 
-using IseaGeo = glm::dvec2;
-std::array<glm::dvec2, 20> icostriangles = {{IseaGeo(-DEG144, E_RAD),
-    IseaGeo(-DEG72, E_RAD),
-    IseaGeo(0.0, E_RAD),
-    IseaGeo(DEG72, E_RAD),
-    IseaGeo(DEG144, E_RAD),
-    IseaGeo(-DEG144, F_RAD),
-    IseaGeo(-DEG72, F_RAD),
-    IseaGeo(0.0, F_RAD),
-    IseaGeo(DEG72, F_RAD),
-    IseaGeo(DEG144, F_RAD),
-    IseaGeo(-DEG108, -F_RAD),
-    IseaGeo(-DEG36, -F_RAD),
-    IseaGeo(DEG36, -F_RAD),
-    IseaGeo(DEG108, -F_RAD),
-    IseaGeo(DEG180, -F_RAD),
-    IseaGeo(-DEG108, -E_RAD),
-    IseaGeo(-DEG36, -E_RAD),
-    IseaGeo(DEG36, -E_RAD),
-    IseaGeo(DEG108, -E_RAD),
-    IseaGeo(DEG180, -E_RAD)}};
+std::array<glm::dvec2, 20> icostriangles = {{glm::dvec2(-DEG144, E_RAD),
+    glm::dvec2(-DEG72, E_RAD),
+    glm::dvec2(0.0, E_RAD),
+    glm::dvec2(DEG72, E_RAD),
+    glm::dvec2(DEG144, E_RAD),
+    glm::dvec2(-DEG144, F_RAD),
+    glm::dvec2(-DEG72, F_RAD),
+    glm::dvec2(0.0, F_RAD),
+    glm::dvec2(DEG72, F_RAD),
+    glm::dvec2(DEG144, F_RAD),
+    glm::dvec2(-DEG108, -F_RAD),
+    glm::dvec2(-DEG36, -F_RAD),
+    glm::dvec2(DEG36, -F_RAD),
+    glm::dvec2(DEG108, -F_RAD),
+    glm::dvec2(DEG180, -F_RAD),
+    glm::dvec2(-DEG108, -E_RAD),
+    glm::dvec2(-DEG36, -E_RAD),
+    glm::dvec2(DEG36, -E_RAD),
+    glm::dvec2(DEG108, -E_RAD),
+    glm::dvec2(DEG180, -E_RAD)}};
 
-std::array<glm::dvec2, 12> vertex = {{IseaGeo(0.0, DEG90),
-    IseaGeo(DEG180, V_LAT),
-    IseaGeo(-DEG108, V_LAT),
-    IseaGeo(-DEG36, V_LAT),
-    IseaGeo(DEG36, V_LAT),
-    IseaGeo(DEG108, V_LAT),
-    IseaGeo(-DEG144, -V_LAT),
-    IseaGeo(-DEG72, -V_LAT),
-    IseaGeo(0.0, -V_LAT),
-    IseaGeo(DEG72, -V_LAT),
-    IseaGeo(DEG144, -V_LAT),
-    IseaGeo(0.0, -DEG90)}};
+std::array<glm::dvec2, 12> vertex = {{glm::dvec2(0.0, DEG90),
+    glm::dvec2(DEG180, V_LAT),
+    glm::dvec2(-DEG108, V_LAT),
+    glm::dvec2(-DEG36, V_LAT),
+    glm::dvec2(DEG36, V_LAT),
+    glm::dvec2(DEG108, V_LAT),
+    glm::dvec2(-DEG144, -V_LAT),
+    glm::dvec2(-DEG72, -V_LAT),
+    glm::dvec2(0.0, -V_LAT),
+    glm::dvec2(DEG72, -V_LAT),
+    glm::dvec2(DEG144, -V_LAT),
+    glm::dvec2(0.0, -DEG90)}};
 
 glm::dvec3 conv(glm::dvec2 p) {
   p += glm::dvec2{M_PI, M_PI / 2};
@@ -91,7 +91,7 @@ glm::dvec2 conv(glm::dvec3 p) {
 void write_face(auto& stream, sqt s) {
   static uint64_t cnt = 1;
   for (auto p : s.get_points_ndvec3())
-    stream << std::format("v {:.10f} {:.10f} {:.10f}\n", p.x * 60, p.y * 60, p.z * 60);
+    stream << std::format("v {:.10f} {:.10f} {:.10f}\n", -p.x * 60, -p.z * 60, p.y * 60);
   stream << std::format("f {} {} {}\n", cnt, cnt + 1, cnt + 2);
   cnt += 3;
 }
@@ -121,8 +121,8 @@ void write_tree(auto& tree) {
       continue;
     done.insert(v);
     if (tree.is_leaf(v)) {
-      if (tree[v] != tile::undefined)
-        write_face(file, v);
+      // if (tree[v] != tile::undefined)
+      write_face(file, v);
     } else {
       for (size_t i = 0; i < 4; i++)
         todo.insert(v.add_minor(i));
@@ -135,16 +135,27 @@ void write_tree(auto& tree) {
   tree.set(sqt{3, {0, 1, 1, 1, 1}}, 43);
 }*/
 
+glm::dvec2 uniform_random_point(auto& generator) {
+  std::uniform_real_distribution<double> uniform01(0.0, 1.0);
+  double theta = 2 * M_PI * uniform01(generator);
+  double phi = acos(1 - 2 * uniform01(generator));
+  return {phi, theta};
+}
+
 TEST_CASE("") {
   sqt_tree<tile> tree(tile::undefined);
-  read_osm(tree);
+  std::mt19937 generator;
+  // tree.set(sqt(uniform_random_point(generator), 27), tile::coast);
+  for (size_t i = 0; i < 1024; i++)
+    tree.set(sqt(uniform_random_point(generator), 15), tile::coast);
+  /*read_osm(tree);
   {
     std::println("Filling water...");
     auto start = std::chrono::steady_clock::now();
     mark_coast(tree);
     std::println("Filling water... done in {}s",
         std::chrono::duration_cast<std::chrono::duration<double>>(std::chrono::steady_clock::now() - start).count());
-  }
+  }*/
   {
     std::println("Writing .obj...");
     auto start2 = std::chrono::steady_clock::now();

@@ -13,7 +13,7 @@ void mark_coast(sqt_tree<tile>& tree) {
     exit(1);
   }
   *fl = tile::water;
-  todo.push_back(tree.get_leaf(sqt(0, {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0})).value());
+  /*todo.push_back(tree.get_leaf(sqt(0, {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0})).value());
   std::vector<sqt> tc;
   tc.reserve(1000);
   while (!todo.empty()) {
@@ -29,5 +29,5 @@ void mark_coast(sqt_tree<tile>& tree) {
         todo.push_back(t);
       }
     };
-  }
+  }*/
 }
