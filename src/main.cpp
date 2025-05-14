@@ -135,19 +135,23 @@ void write_tree(auto& tree) {
   tree.set(sqt{3, {0, 1, 1, 1, 1}}, 43);
 }*/
 
+//
 glm::dvec2 uniform_random_point(auto& generator) {
   std::uniform_real_distribution<double> uniform01(0.0, 1.0);
   double theta = 2 * M_PI * uniform01(generator);
   double phi = acos(1 - 2 * uniform01(generator));
-  return {phi, theta};
+  return {theta, phi - (M_PI * 0.5)};
 }
 
 TEST_CASE("") {
   sqt_tree<tile> tree(tile::undefined);
   std::mt19937 generator;
   // tree.set(sqt(uniform_random_point(generator), 27), tile::coast);
-  for (size_t i = 0; i < 1024; i++)
-    tree.set(sqt(uniform_random_point(generator), 15), tile::coast);
+  size_t point_count = 8192;
+  size_t depth = std::log2(point_count);
+  std::println("POINTS {} => depth {}", point_count, depth);
+  for (size_t i = 0; i < point_count; i++)
+    tree.set(sqt(uniform_random_point(generator), depth), tile::coast);
   /*read_osm(tree);
   {
     std::println("Filling water...");
