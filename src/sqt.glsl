@@ -38,11 +38,12 @@ namespace sqt_impl {
   CONSTEXPR uint64_t major_count = 20;
   CONSTEXPR uint64_t count_bits = 0x1F;
   CONSTEXPR uint64_t major_bits = 0x1F;
-  CONSTEXPR uint64_t count_offset = 59;
-  CONSTEXPR uint64_t major_offset = 54;
+  CONSTEXPR uint64_t count_offset = 0;
+  CONSTEXPR uint64_t minor_offset = 5;
+  CONSTEXPR uint64_t major_offset = 59;
   CONSTEXPR uint64_t count_mask = count_bits << count_offset;
   CONSTEXPR uint64_t major_mask = major_bits << major_offset;
-  CONSTEXPR uint64_t minor_mask = (uint64_t(1) << major_offset) - 1;
+  CONSTEXPR uint64_t minor_mask = ((uint64_t(1) << (minor_count * 2)) - 1) << minor_offset;
   CONSTEXPR uint64_t inv_count_mask = ~count_mask;
   CONSTEXPR uint64_t inv_major_mask = ~major_mask;
   CONSTEXPR uint64_t inv_minor_mask = ~minor_mask;
@@ -141,7 +142,7 @@ CONSTEXPR uint8_t direction_center = uint8_t(3);
       {uint8_t(11), uint8_t(6), uint8_t(10)}};
 
   CONST_INLINE uint32_t sqt_count(sqt_t v) {
-    uint32_t ret = uint32_t(v._data >> count_offset);
+    uint32_t ret = uint32_t((v._data >> count_offset) & count_bits);
     assume(ret <= 27);
     return ret;
   }
@@ -154,14 +155,15 @@ CONSTEXPR uint8_t direction_center = uint8_t(3);
     assert(i < sqt_count(v));
     assume(i < sqt_count(v));
     assume(i < minor_count);
-    uint32_t ret = uint32_t(v._data >> uint64_t(i * 2)) & uint32_t(0x3);
+    uint32_t ret = uint32_t(v._data >> (major_offset - (uint64_t((i + 1) * 2)))) & uint32_t(0x3);
     assume(ret < 20);
     return ret;
   }
   CONST_INLINE sqt_t sqt_set_count(sqt_t v, uint32_t c) {
     assert(c <= minor_count);
     assume(c <= minor_count);
-    v._data = (v._data & inv_count_mask & (inv_minor_mask | ((uint64_t(1) << (c * 2)) - 1))) | (uint64_t(c) << count_offset);
+    v._data = (v._data & inv_count_mask & (inv_minor_mask | (((uint64_t(1) << (c * 2)) - uint64_t(1)) << (major_offset - (c * 2))))) |
+              (uint64_t(c) << count_offset);
     return v;
   }
   CONST_INLINE sqt_t sqt_set_major(sqt_t v, uint32_t m) {
@@ -177,7 +179,7 @@ CONSTEXPR uint8_t direction_center = uint8_t(3);
     v = sqt_set_count(v, c + 1);
     assert(m < 4);
     assume(m < 4);
-    v._data = v._data | (uint64_t(m & 0x3) << uint64_t(c * 2));
+    v._data = v._data | (uint64_t(m & 0x3) << uint64_t(major_offset - ((c + 1) * 2)));
     return v;
   }
   CONST_INLINE sqt_t sqt_new() {

@@ -5,9 +5,18 @@
 #include <iterator>
 #include <ranges>
 
+template <typename T = double> inline glm::tvec3<T, glm::highp> conv(glm::tvec2<T, glm::highp> p) {
+  p += glm::tvec2<T, glm::highp>{M_PI, M_PI / 2};
+  return {sin(p.y) * cos(p.x), sin(p.y) * sin(p.x), cos(p.y)};
+}
+template <typename T = double> inline glm::tvec2<T, glm::highp> conv(glm::tvec3<T, glm::highp> p) {
+  return glm::dvec2{atan2(p.y, p.x), atan2(hypot(p.y, p.x), p.z)} - glm::dvec2{M_PI, M_PI / 2};
+}
+
 struct sqt {
   inline sqt() : data_(sqt_impl::sqt_new()) {}
-  inline sqt(glm::vec2 pos, sqt_impl::uint granularity) : data_(sqt_impl::sqt_from_point_latlonf({pos.x, pos.y}, granularity)) {}
+  // inline sqt(glm::vec2 pos, sqt_impl::uint granularity) : data_(sqt_impl::sqt_from_point_latlonf({pos.x, pos.y}, granularity)) {}
+  inline sqt(glm::dvec2 pos, sqt_impl::uint granularity) : data_(sqt_impl::sqt_from_point_ndvec3(conv(pos), granularity)) {}
   inline sqt(glm::vec3 pos, sqt_impl::uint granularity) : data_(sqt_impl::sqt_from_point_nvec3(pos, granularity)) {}
   inline sqt(glm::dvec3 pos, sqt_impl::uint granularity) : data_(sqt_impl::sqt_from_point_ndvec3(pos, granularity)) {}
   inline sqt(uint8_t major, std::initializer_list<size_t> minors) : data_(sqt_impl::sqt_new()) {
@@ -52,6 +61,10 @@ struct sqt {
     ret[1].data_ = n1;
     ret[2].data_ = n2;
     return ret;
+  }
+  [[gnu::const]] inline std::array<sqt, 4> get_self_and_neighbors() const {
+    auto [n0, n1, n2] = get_neighbors();
+    return {*this, n0, n1, n2};
   }
   [[gnu::const]] inline bool is_neighbor(sqt other) const {
     assert(other.count() >= count());
@@ -166,6 +179,9 @@ struct sqt {
     std::array<glm::vec3, 3> ret;
     return sqt_impl::sqt_get_midpoint_ndvec3(data_);
   }
+  [[gnu::const]] inline glm::dvec2 get_midpoint_latlond() const {
+    return conv(get_midpoint_ndvec3());
+  }
   [[gnu::const]] inline double distance_vec3(sqt other) const {
     return glm::length(sqt_impl::sqt_get_midpoint_vec3(data_) - sqt_impl::sqt_get_midpoint_vec3(other.data_));
   }
@@ -178,8 +194,11 @@ struct sqt {
   [[gnu::const]] inline double distance_ndvec3(sqt other) const {
     return glm::length(sqt_impl::sqt_get_midpoint_ndvec3(data_) - sqt_impl::sqt_get_midpoint_ndvec3(other.data_));
   }
+  [[gnu::const]] inline double distance_latlond(sqt other) const {
+    return sqt_impl::sqt_distance_latlonf(get_midpoint_latlond(), other.get_midpoint_latlond());
+  }
 
-private:
+  // private:
   inline sqt(sqt_impl::sqt_t v) : data_(v) {}
   sqt_impl::sqt_t data_;
 };
@@ -205,5 +224,10 @@ template <> struct std::formatter<sqt> {
     return std::format_to(ctx.out(), "}})");
   }
 };
+
+inline std::ostream& operator<<(std::ostream& os, const sqt& value) {
+  os << std::format("{}", value);
+  return os;
+}
 
 #endif // SQT_HPP

@@ -15,15 +15,6 @@
 using namespace std::placeholders; // for _1, _2, _3...
 using namespace std::literals;
 
-// glm::dvec3 conv(glm::dvec2 p);
-glm::tvec3<__float128, glm::highp> conv(glm::tvec2<__float128, glm::highp> p) {
-  p += glm::tvec2<__float128, glm::highp>{M_PI, M_PI / 2};
-  return {sin(p.y) * cos(p.x), sin(p.y) * sin(p.x), cos(p.y)};
-}
-glm::tvec2<__float128, glm::highp> conv(glm::tvec3<__float128, glm::highp> p) {
-  return glm::dvec2{atan2(p.y, p.x), atan2(hypot(p.y, p.x), p.z)} - glm::dvec2{M_PI, M_PI / 2};
-}
-
 struct osm_reader {
   std::string buffer;
   std::counting_semaphore<2147483647> sema;
@@ -140,18 +131,18 @@ struct osm_reader {
         exit(1);
       }
       if (group.has_dense()) {
-        __float128 offlat = (.000000001 / 180.0 * M_PI) * block.lat_offset();
-        __float128 mullat = (.000000001 / 180.0 * M_PI) * block.granularity();
-        __float128 offlon = (.000000001 / 180.0 * M_PI) * block.lon_offset();
-        __float128 mullon = (.000000001 / 180.0 * M_PI) * block.granularity();
-        __float128 lat = 0;
-        __float128 lon = 0;
+        double offlat = (.000000001 / 180.0 * M_PI) * block.lat_offset();
+        double mullat = (.000000001 / 180.0 * M_PI) * block.granularity();
+        double offlon = (.000000001 / 180.0 * M_PI) * block.lon_offset();
+        double mullon = (.000000001 / 180.0 * M_PI) * block.granularity();
+        double lat = 0;
+        double lon = 0;
         uint64_t id = 0;
         for (auto [ido, lato, lono] : std::views::zip(group.dense().id(), group.dense().lat(), group.dense().lon())) {
           id += ido;
           lat += lato;
           lon += lono;
-          positions.emplace(id, sqt(glm::dvec3(conv({offlon + (mullon * lon), offlat + (mullat * lat)})), 20));
+          positions.emplace(id, sqt(glm::dvec3(conv({offlon + (mullon * lon), offlat + (mullat * lat)})), 13));
         }
       }
     }
@@ -252,8 +243,8 @@ void read_osm(sqt_tree<tile>& tree) {
         std::unique_lock lock(mtx);
         auto start3 = std::chrono::steady_clock::now();
         for (auto v : fin)
-          if (focus.distance_ndvec3(v) < (100.0 / 12000))
-            tree.set(v, tile::coast);
+          // if (focus.distance_ndvec3(v) < (100.0 / 12000))
+          tree.set(v, tile::coast);
         /*std::println("TEXIT {} PATH={}s; QUEUEING={}s; INSERT={}s; POINTS={} from {}",
             start / point_count,
             std::chrono::duration_cast<std::chrono::duration<double>>(start2 - start1).count(),

@@ -5,12 +5,16 @@
 #include "doctest/doctest.h"
 
 #include "osm.hpp"
+#include <etl/map.h>
+#include <flat_set>
 #include <generator>
 #include <glm/gtx/string_cast.hpp>
+#include <nlohmann/json.hpp>
 #include <print>
 #include <random>
 #include <ranges>
 #include <set>
+#include <thread>
 
 double DEG36 = 0.62831853071795864768;
 double DEG72 = 1.25663706143591729537;
@@ -62,14 +66,6 @@ std::array<glm::dvec2, 12> vertex = {{glm::dvec2(0.0, DEG90),
     glm::dvec2(DEG72, -V_LAT),
     glm::dvec2(DEG144, -V_LAT),
     glm::dvec2(0.0, -DEG90)}};
-
-glm::dvec3 conv(glm::dvec2 p) {
-  p += glm::dvec2{M_PI, M_PI / 2};
-  return {sin(p.y) * cos(p.x), sin(p.y) * sin(p.x), cos(p.y)};
-}
-glm::dvec2 conv(glm::dvec3 p) {
-  return glm::dvec2{atan2(p.y, p.x), atan2(hypot(p.y, p.x), p.z)} - glm::dvec2{M_PI, M_PI / 2};
-}
 
 /*TEST_CASE("") {
   for (auto [i, p] : icostriangles | std::views::enumerate) {
@@ -136,38 +132,200 @@ void write_tree(auto& tree) {
 }*/
 
 //
-glm::dvec2 uniform_random_point(auto& generator) {
+inline glm::dvec2 uniform_random_point(auto& generator) {
   std::uniform_real_distribution<double> uniform01(0.0, 1.0);
   double theta = 2 * M_PI * uniform01(generator);
   double phi = acos(1 - 2 * uniform01(generator));
   return {theta, phi - (M_PI * 0.5)};
 }
 
+inline auto find_points_in_zone(const auto& points, sqt a) {
+  return std::ranges::subrange(points.lower_bound(a), points.end()) |
+         std::views::take_while([a](sqt b) { return a == b.counted(a.count()); });
+}
+
+inline nlohmann::json geojson(glm::dvec2 x) {
+  return {x.x / M_PI * 180.0, (x.y / M_PI * 180.0)};
+}
+inline nlohmann::json geojson(sqt x) {
+  return geojson(x.get_midpoint_latlond());
+}
+
+#if 1
 TEST_CASE("") {
+  std::ofstream file;
+  file.exceptions(std::ios::badbit | std::ios::failbit);
+  file.open("/home/christian/sqt/tree.obj", std::ios::trunc);
+
   sqt_tree<tile> tree(tile::undefined);
-  std::mt19937 generator;
-  // tree.set(sqt(uniform_random_point(generator), 27), tile::coast);
-  size_t point_count = 8192;
-  size_t depth = std::log2(point_count);
-  std::println("POINTS {} => depth {}", point_count, depth);
-  for (size_t i = 0; i < point_count; i++)
-    tree.set(sqt(uniform_random_point(generator), depth), tile::coast);
-  /*read_osm(tree);
+  read_osm(tree);
   {
     std::println("Filling water...");
     auto start = std::chrono::steady_clock::now();
     mark_coast(tree);
     std::println("Filling water... done in {}s",
         std::chrono::duration_cast<std::chrono::duration<double>>(std::chrono::steady_clock::now() - start).count());
-  }*/
+  }
+  std::flat_set<sqt> points;
+  nlohmann::json points_list = nlohmann::json::array();
+  nlohmann::json points2_list = nlohmann::json::array();
   {
+    std::println("Generating points...");
+    auto start = std::chrono::steady_clock::now();
+    // tree.set(sqt(uniform_random_point(generator), 27), tile::coast);
+    constexpr size_t point_count = 4000000 / 64;
+    // constexpr size_t point_count = 4000;
+    //  size_t depth = std::log2(point_count);
+    std::vector<std::jthread> threads;
+    std::mutex pts_mtx;
+    std::set<sqt> pts;
+    for (size_t ri = 0; ri < std::jthread::hardware_concurrency(); ri++)
+      threads.emplace_back([&, ri] {
+        std::set<sqt> p;
+        std::mt19937 generator(ri);
+        const size_t rmax = (((point_count / std::jthread::hardware_concurrency()) + 1) * 1.01);
+        while (p.size() <= rmax) {
+          glm::dvec2 pt = uniform_random_point(generator);
+          auto v = sqt(
+              pt, 24); // Do not use full precision (27), as 6cm is too small for floats which are somehow still fucking around somewhere
+          auto fl = tree.first_leaf(v);
+          assert(fl != nullptr);
+          if (*fl == tile::water) {
+            // tree.set(v, tile::coast);
+            // write_face(file, v);
+            p.insert(v);
+            if (v.distance_dvec3(sqt(glm::dvec2(M_PI, 0), 10)) < 0.05) {
+              std::unique_lock lock(pts_mtx);
+              points_list.push_back(geojson(pt));
+              points2_list.push_back(geojson(v));
+            }
+          }
+        }
+        std::unique_lock lock(pts_mtx);
+        pts.merge(std::move(p));
+      });
+    for (auto& t : threads)
+      t.join();
+    std::mt19937 generator;
+    while (pts.size() > point_count) {
+      auto v = sqt(uniform_random_point(generator), 27);
+      auto it = pts.lower_bound(v);
+      if (it != pts.end())
+        pts.erase(it);
+    }
+    points = {std::sorted_unique, pts.begin(), pts.end()};
+    std::println("POINTS {} => in_water {}", point_count, points.size());
+    std::println("Generating points... done in {}s",
+        std::chrono::duration_cast<std::chrono::duration<double>>(std::chrono::steady_clock::now() - start).count());
+  }
+  {
+    std::println("Finding neighbors...");
+    auto start = std::chrono::steady_clock::now();
+
+    nlohmann::json line_list = nlohmann::json::array();
+    /*
+    auto f = [&](sqt x) {
+      nlohmann::json w = nlohmann::json::array();
+      write_face(file, x);
+      for (auto p : x.get_points_ndvec3())
+        w.push_back(geojson(conv(p)));
+      line_list.push_back(w);
+    };
+    f(sqt(0, {}));
+    f(sqt(0, {0}));
+    f(sqt(0, {0, 0}));
+    f(sqt(0, {0, 0, 0}));
+    f(sqt(0, {0, 0, 1}));
+    f(sqt(0, {0, 0, 2}));
+    f(sqt(0, {0, 0, 3}));*/
+
+    size_t good = 0;
+    size_t count = 0;
+    // for (auto x : find_points_in_zone(points, sqt(glm::dvec2(-5.5 * M_PI / 180.0, 35.95 * M_PI / 180.0), 5))) {
+#if 0
+    for (auto x : find_points_in_zone(points, sqt(glm::dvec2(M_PI, 0), 0))) {
+      sqt pp = x;
+      sqt pn = x;
+      sqt np = x;
+      sqt nn = x;
+      auto pos = x.get_midpoint_latlond();
+      for (auto n : x.counted(7 - 7).get_self_and_neighbors())
+        for (auto o : find_points_in_zone(points, n)) {
+          auto ass = [&](auto& v) {
+            if ((x == v) || (x.distance_dvec3(o) < x.distance_dvec3(v)))
+              v = o;
+          };
+          if (x == o)
+            continue;
+          auto diff = pos - o.get_midpoint_latlond();
+          while (diff.x < -M_PI)
+            diff.x += M_PI * 2;
+          while (diff.x > M_PI)
+            diff.x -= M_PI * 2;
+          assert(fabs(diff.y) < M_PI);
+          if (diff.x > 0) {
+            if (diff.y > 0)
+              ass(pp);
+            else
+              ass(pn);
+          } else {
+            if (diff.y > 0)
+              ass(np);
+            else
+              ass(nn);
+          }
+        }
+      for (auto o : {pp, pn, np, nn}) {
+        size_t dist = x.distance_latlond(o) * 6371000000.0; // Earth diameter in mm
+        if ((x != o) /*&& (dist < 30000000)*/) {            // 30km in mm
+          assert(dist != 0);
+          line_list.push_back({geojson(x), geojson(o)});
+        }
+      }
+    }
+#endif
+    std::println("AVG {}", (good / double(count)));
+
+    std::println("Finding neighbors... done in {}s",
+        std::chrono::duration_cast<std::chrono::duration<double>>(std::chrono::steady_clock::now() - start).count());
+    nlohmann::json o;
+    o["type"] = "FeatureCollection";
+    nlohmann::json lf;
+    lf["type"] = "Feature";
+    lf["properties"]["name"] = "Lines";
+    lf["geometry"]["type"] = "MultiLineString";
+    lf["geometry"]["coordinates"] = line_list;
+    o["features"].push_back(lf);
+    {
+      nlohmann::json pf;
+      pf["type"] = "Feature";
+      pf["properties"]["name"] = "Original Points";
+      pf["properties"]["marker-color"] = "green";
+      pf["geometry"]["type"] = "MultiPoint";
+      pf["geometry"]["coordinates"] = points_list;
+      o["features"].push_back(pf);
+    }
+    {
+      nlohmann::json pf;
+      pf["type"] = "Feature";
+      pf["properties"]["name"] = "Generated Points";
+      pf["properties"]["marker-color"] = "red";
+      pf["properties"]["marker-size"] = "small";
+      pf["geometry"]["type"] = "MultiPoint";
+      pf["geometry"]["coordinates"] = points2_list;
+      o["features"].push_back(pf);
+    }
+    std::println("{}", o.dump());
+  }
+  /*{
     std::println("Writing .obj...");
     auto start2 = std::chrono::steady_clock::now();
     write_tree(tree);
     std::println("Writing .obj... done in {}s",
         std::chrono::duration_cast<std::chrono::duration<double>>(std::chrono::steady_clock::now() - start2).count());
-  }
+  }*/
 }
+#endif
 /*TEST_CASE("") {
   sqt_tree<bool> tree(false);
   auto v = sqt{3, {0, 0, 0, 0, 0, 0, 0, 0, 0}};
@@ -195,13 +353,33 @@ std::generator<sqt> bunch_of_triangles() {
       for (size_t b = 0; b < 4; b++) {
         co_yield sqt(major, {a, b});
         for (size_t c = 0; c < 4; c++) {
-          co_yield sqt(major, {a, b, c});
+          auto x = sqt(major, {a, b, c});
+          CHECK(x.count() == 3);
+          co_yield x;
           for (size_t d = 0; d < 4; d++) {
             co_yield sqt(major, {a, b, c, d});
           }
         }
       }
     }
+  }
+}
+
+TEST_CASE("find_points_in_zone") {
+  std::set<sqt> points;
+  for (auto t : bunch_of_triangles())
+    points.insert(t);
+  for (auto t : bunch_of_triangles()) {
+    std::set<sqt> v;
+    for (auto p : find_points_in_zone(points, t))
+      v.insert(p);
+    std::set<sqt> w;
+    for (auto p : points)
+      if ((p.count() >= t.count()) && (t == p.counted(t.count())))
+        w.insert(p);
+    CHECK(v.size() == w.size());
+    for (const auto& [a, b] : std::views::zip(v, w))
+      CHECK(a == b);
   }
 }
 
@@ -277,6 +455,19 @@ TEST_CASE("iterate2") {
   CHECK(res.size() == 2);
   CHECK(res.at(0) == 3);
   CHECK(res.at(1) == 0);
+}
+TEST_CASE("iterate2") {
+  for (sqt v : bunch_of_triangles()) {
+    for (size_t i = 0; i < v.count(); i++) {
+      /*std::println("{}: {} == {} ({:#018x} == {:#018x})",
+          v,
+          v.counted(i),
+          sqt(v.major(), v | std::views::take(i)),
+          v.counted(i).data_._data,
+          sqt(v.major(), v | std::views::take(i)).data_._data);*/
+      CHECK(v.counted(i) == sqt(v.major(), v | std::views::take(i)));
+    }
+  }
 }
 TEST_CASE("neighbors") {
   sqt_tree<int> tree(38);
