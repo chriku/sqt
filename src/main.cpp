@@ -169,7 +169,7 @@ TEST_CASE("acc3") {
   CHECK((sqt_impl::sqt_distance_latlond(pt, v.get_midpoint_latlond()) * 6000) < 20);
 }
 #endif
-#if 0
+#if 1
 TEST_CASE("") {
   std::ofstream file;
   file.exceptions(std::ios::badbit | std::ios::failbit);
@@ -191,10 +191,7 @@ TEST_CASE("") {
   {
     std::println("Generating points...");
     auto start = std::chrono::steady_clock::now();
-    // tree.set(sqt(uniform_random_point(generator), 27), tile::coast);
-    constexpr size_t point_count = 4000000 / 64;
-    // constexpr size_t point_count = 4000;
-    //  size_t depth = std::log2(point_count);
+    constexpr size_t point_count = 4000000;
     std::vector<std::jthread> threads;
     std::mutex pts_mtx;
     std::set<sqt> pts;
@@ -205,30 +202,11 @@ TEST_CASE("") {
         const size_t rmax = (((point_count / std::jthread::hardware_concurrency()) + 1) * 1.01);
         while (p.size() <= rmax) {
           glm::dvec2 pt = uniform_random_point(generator);
-          auto v = sqt(
-              pt, 24); // Do not use full precision (27), as 6cm is too small for floats which are somehow still fucking around somewhere
+          auto v = sqt(pt, 27);
           auto fl = tree.first_leaf(v);
           assert(fl != nullptr);
           if (*fl == tile::water) {
-            // tree.set(v, tile::coast);
-            // write_face(file, v);
             p.insert(v);
-            if (v.distance_dvec3(sqt(glm::dvec2(M_PI, 0), 10)) < 0.05) {
-              std::unique_lock lock(pts_mtx);
-              points_list.push_back(geojson(pt));
-              points2_list.push_back(geojson(v));
-
-              {
-                nlohmann::json pf;
-                pf["type"] = "Feature";
-                pf["properties"]["name"] = std::format("{}, {}", pt.x, pt.y);
-                // pf["properties"]["marker-color"] = "red";
-                // pf["properties"]["marker-size"] = "small";
-                pf["geometry"]["type"] = "Point";
-                pf["geometry"]["coordinates"] = geojson(v);
-                o["features"].push_back(pf);
-              }
-            }
           }
         }
         std::unique_lock lock(pts_mtx);
@@ -269,17 +247,18 @@ TEST_CASE("") {
     f(sqt(0, {0, 0, 2}));
     f(sqt(0, {0, 0, 3}));*/
 
-    size_t good = 0;
-    size_t count = 0;
-    // for (auto x : find_points_in_zone(points, sqt(glm::dvec2(-5.5 * M_PI / 180.0, 35.95 * M_PI / 180.0), 5))) {
-#if 0
-    for (auto x : find_points_in_zone(points, sqt(glm::dvec2(M_PI, 0), 0))) {
+    size_t min = -1;
+    size_t max = 0;
+#if 1
+    for (auto x : points)
+    // for (auto x : find_points_in_zone(points, sqt(glm::dvec2(-5.5 * M_PI / 180.0, 35.95 * M_PI / 180.0), 4)))
+    {
       sqt pp = x;
       sqt pn = x;
       sqt np = x;
       sqt nn = x;
       auto pos = x.get_midpoint_latlond();
-      for (auto n : x.counted(7 - 7).get_self_and_neighbors())
+      for (auto n : x.counted(7).get_self_and_neighbors())
         for (auto o : find_points_in_zone(points, n)) {
           auto ass = [&](auto& v) {
             if ((x == v) || (x.distance_dvec3(o) < x.distance_dvec3(v)))
@@ -307,14 +286,18 @@ TEST_CASE("") {
         }
       for (auto o : {pp, pn, np, nn}) {
         size_t dist = x.distance_latlond(o) * 6371000000.0; // Earth diameter in mm
-        if ((x != o) /*&& (dist < 30000000)*/) {            // 30km in mm
+        if ((x != o) && (dist < 30000000)) {                // 30km in mm
           assert(dist != 0);
-          line_list.push_back({geojson(x), geojson(o)});
+          // line_list.push_back({geojson(x), geojson(o)});
+          if (dist < min)
+            min = dist;
+          if (dist > max)
+            max = dist;
         }
       }
     }
 #endif
-    std::println("AVG {}", (good / double(count)));
+    std::println("DIST {} {}", min, max);
 
     std::println("Finding neighbors... done in {}s",
         std::chrono::duration_cast<std::chrono::duration<double>>(std::chrono::steady_clock::now() - start).count());

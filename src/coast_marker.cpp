@@ -7,14 +7,15 @@
 void mark_coast(sqt_tree<tile>& tree) {
   std::list<sqt> todo;
   // auto fl = tree.first_leaf(sqt(0, {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}));
-  auto fl = tree.first_leaf(sqt({0, 0}, 27));
+  auto root = sqt({0, 0}, 27);
+  auto fl = tree.first_leaf(root);
   assert(fl != nullptr);
   if (*fl != tile::undefined) {
     std::println("Invalid zero, zero: {}", size_t(*fl));
     exit(1);
   }
   *fl = tile::water;
-  todo.push_back(tree.get_leaf(sqt(0, {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0})).value());
+  todo.push_back(tree.get_leaf(root).value());
   std::vector<sqt> tc;
   tc.reserve(1000);
   while (!todo.empty()) {

@@ -410,32 +410,33 @@ CONSTEXPR uint8_t direction_center = uint8_t(3);
     return 2 * my_atan2(my_sqrt(x), my_sqrt(1 - x));
   }
 
-  CONST_INLINE retarray(double, 3) project(retarray(dvec3, 3) p, dvec3 dir, bool shit) {
+  CONST_INLINE retarray(double, 3) project(retarray(dvec3, 3) p, dvec3 dir) {
     dvec3 v0v1 = p[1] - p[0];
     dvec3 v0v2 = p[2] - p[0];
     dvec3 pvec = cross(dir, v0v2);
     double det = dot(v0v1, pvec);
-    assert(det >= 0);
-    /*if (fabs(det) < 0.00001)
-      return 1;*/
+    if (det <= 0) {
+      retarray(double, 3) ret;
+      ret[0] = -1;
+      return ret;
+    }
     double invDet = 1 / det;
 
     dvec3 tvec = normalize(-p[0]);
     double u = dot(tvec, pvec) * invDet;
-    /*assert(u >= 0);
-    assert(u <= 1);
-    if (u < 0 || u > 1)
-      assert(false);*/
-    u = clamp(u, 0.0, 1.0);
+    if (!((u >= 0) && (u <= 1))) {
+      retarray(double, 3) ret;
+      ret[0] = -1;
+      return ret;
+    }
 
     dvec3 qvec = cross(tvec, v0v1);
     double v = dot(dir, qvec) * invDet;
-    v = clamp(v, 0.0, 1.0);
-    /*    assert(v >= 0);
-    std::println("UV {} + {} = {} (in {})", u, v, u + v, shit);
-    assert((u + v) <= 1);
-    if (v < 0 || u + v > 1)
-      assert(false);*/
+    if (!((v >= 0) && ((u + v) <= 1))) {
+      retarray(double, 3) ret;
+      ret[0] = -1;
+      return ret;
+    }
 
     double t = dot(v0v2, qvec) * invDet;
 
@@ -500,53 +501,46 @@ CONSTEXPR uint8_t direction_center = uint8_t(3);
   CONST_INLINE sqt_t sqt_from_point_##name(T pos, uint granularity) {                                                                      \
     assert(granularity <= minor_count);                                                                                                    \
     assume(granularity <= minor_count);                                                                                                    \
-    sqt_t v = sqt_new();                                                                                                                   \
     {                                                                                                                                      \
-      uint major = 0;                                                                                                                      \
-      ET distance = sqt_distance_##name(pos, sqt_get_major_midpoint_##name(0));                                                            \
-      _Pragma("unroll 20") for (uint i = 1; i < 20; i++) {                                                                                 \
-        ET d = sqt_distance_##name(pos, sqt_get_major_midpoint_##name(i));                                                                 \
-        if (d < distance) {                                                                                                                \
-          major = i;                                                                                                                       \
-          distance = d;                                                                                                                    \
+      _Pragma("unroll 20") for (uint i = 0; i < 20; i++) {                                                                                 \
+        sqt_t v = sqt_set_major(sqt_new(), i);                                                                                             \
+        assume(granularity <= minor_count);                                                                                                \
+        retarray(double, 3) pts = project(sqt_get_points_raw_##name(v), normalize(pos));                                                   \
+        if (pts[0] >= 0) {                                                                                                                 \
+          _Pragma("unroll 27") for (uint i = 0; i < granularity; i++) {                                                                    \
+            retarray(double, 3) pts2;                                                                                                      \
+            if (pts[0] >= (pts[1] + pts[2])) {                                                                                             \
+              v = sqt_add_minor(v, 2);                                                                                                     \
+              pts2[2] = pts[1] * 2;                                                                                                        \
+              pts2[1] = pts[2] * 2;                                                                                                        \
+              pts2[0] = 1 - (pts2[1] + pts2[2]);                                                                                           \
+              assert(fabs(1 - (pts2[0] + pts2[1] + pts2[2])) < 0.01);                                                                      \
+            } else if (pts[2] >= (pts[0] + pts[1])) {                                                                                      \
+              v = sqt_add_minor(v, 0);                                                                                                     \
+              pts2[1] = pts[0] * 2;                                                                                                        \
+              pts2[0] = pts[1] * 2;                                                                                                        \
+              pts2[2] = 1 - (pts2[0] + pts2[1]);                                                                                           \
+              assert(fabs(1 - (pts2[0] + pts2[1] + pts2[2])) < 0.01);                                                                      \
+            } else if (pts[1] >= (pts[0] + pts[2])) {                                                                                      \
+              v = sqt_add_minor(v, 1);                                                                                                     \
+              pts2[2] = pts[0] * 2;                                                                                                        \
+              pts2[0] = pts[2] * 2;                                                                                                        \
+              pts2[1] = 1 - (pts2[0] + pts2[2]);                                                                                           \
+              assert(fabs(1 - (pts2[0] + pts2[1] + pts2[2])) < 0.01);                                                                      \
+            } else {                                                                                                                       \
+              v = sqt_add_minor(v, 3);                                                                                                     \
+              pts2[0] = 1 - (pts[0] * 2);                                                                                                  \
+              pts2[1] = 1 - (pts[1] * 2);                                                                                                  \
+              pts2[2] = 1 - (pts[2] * 2);                                                                                                  \
+              assert(fabs(1 - (pts2[0] + pts2[1] + pts2[2])) < 0.01);                                                                      \
+            }                                                                                                                              \
+            pts = pts2;                                                                                                                    \
+          }                                                                                                                                \
+          return v;                                                                                                                        \
         }                                                                                                                                  \
       }                                                                                                                                    \
-      v = sqt_set_major(v, major);                                                                                                         \
     }                                                                                                                                      \
-    assume(granularity <= minor_count);                                                                                                    \
-    retarray(double, 3) pts = project(sqt_get_points_raw_##name(v), pos, false);                                                           \
-    _Pragma("unroll 27") for (uint i = 0; i < granularity; i++) {                                                                          \
-      if (pts[0] >= (pts[1] + pts[2])) {                                                                                                   \
-        v = sqt_add_minor(v, 2);                                                                                                           \
-        pts[1] *= 2;                                                                                                                       \
-        pts[2] *= 2;                                                                                                                       \
-        wtfswap(pts[1], pts[2]);                                                                                                           \
-        pts[0] = 1 - (pts[1] + pts[2]);                                                                                                    \
-        assert(fabs(1 - (pts[0] + pts[1] + pts[2])) < 0.01);                                                                               \
-      } else if (pts[2] >= (pts[0] + pts[1])) {                                                                                            \
-        v = sqt_add_minor(v, 0);                                                                                                           \
-        pts[0] *= 2;                                                                                                                       \
-        pts[1] *= 2;                                                                                                                       \
-        wtfswap(pts[1], pts[0]);                                                                                                           \
-        pts[2] = 1 - (pts[0] + pts[1]);                                                                                                    \
-        assert(fabs(1 - (pts[0] + pts[1] + pts[2])) < 0.01);                                                                               \
-      } else if (pts[1] >= (pts[0] + pts[2])) {                                                                                            \
-        v = sqt_add_minor(v, 1);                                                                                                           \
-        pts[0] *= 2;                                                                                                                       \
-        pts[2] *= 2;                                                                                                                       \
-        wtfswap(pts[0], pts[2]);                                                                                                           \
-        pts[1] = 1 - (pts[0] + pts[2]);                                                                                                    \
-        assert(fabs(1 - (pts[0] + pts[1] + pts[2])) < 0.01);                                                                               \
-      } else {                                                                                                                             \
-        v = sqt_add_minor(v, 3);                                                                                                           \
-        pts[0] = 1 - (pts[0] * 2);                                                                                                         \
-        pts[1] = 1 - (pts[1] * 2);                                                                                                         \
-        pts[2] = 1 - (pts[2] * 2);                                                                                                         \
-        assert(fabs(1 - (pts[0] + pts[1] + pts[2])) < 0.01);                                                                               \
-      }                                                                                                                                    \
-      dbgv(v);                                                                                                                             \
-    }                                                                                                                                      \
-    return v;                                                                                                                              \
+    assert(false);                                                                                                                         \
   }
 
   /*CONST_INLINE sqt_t sqt_from_point2_dvec3(dvec3 pos, uint granularity) {
