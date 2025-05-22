@@ -1,24 +1,31 @@
 #ifndef SQT_HPP
 #define SQT_HPP
+
+namespace sqt_impl {
+  struct sqt_t;
+}
+inline void dbgv(sqt_impl::sqt_t d);
+#include <glm/glm.hpp>
+template <typename T = double> inline glm::tvec3<T, glm::highp> conv(glm::tvec2<T, glm::highp> p) {
+  p += glm::tvec2<T, glm::highp>{M_PI, M_PI / 2};
+  return {sin(p.y) * cos(p.x), sin(p.y) * sin(p.x), cos(p.y)};
+}
+template <typename T = double> inline glm::tvec2<T, glm::highp> conv(glm::tvec3<T, glm::highp> rp) {
+  auto p = glm::normalize(rp);
+  return glm::dvec2{atan2(p.y, p.x), atan2(hypot(p.y, p.x), p.z)} - glm::dvec2{M_PI, M_PI / 2};
+}
+
 #include "sqt.glsl"
 #include <format>
 #include <iterator>
 #include <ranges>
 
-template <typename T = double> inline glm::tvec3<T, glm::highp> conv(glm::tvec2<T, glm::highp> p) {
-  p += glm::tvec2<T, glm::highp>{M_PI, M_PI / 2};
-  return {sin(p.y) * cos(p.x), sin(p.y) * sin(p.x), cos(p.y)};
-}
-template <typename T = double> inline glm::tvec2<T, glm::highp> conv(glm::tvec3<T, glm::highp> p) {
-  return glm::dvec2{atan2(p.y, p.x), atan2(hypot(p.y, p.x), p.z)} - glm::dvec2{M_PI, M_PI / 2};
-}
-
 struct sqt {
   inline sqt() : data_(sqt_impl::sqt_new()) {}
   // inline sqt(glm::vec2 pos, sqt_impl::uint granularity) : data_(sqt_impl::sqt_from_point_latlonf({pos.x, pos.y}, granularity)) {}
-  inline sqt(glm::dvec2 pos, sqt_impl::uint granularity) : data_(sqt_impl::sqt_from_point_ndvec3(conv(pos), granularity)) {}
-  inline sqt(glm::vec3 pos, sqt_impl::uint granularity) : data_(sqt_impl::sqt_from_point_nvec3(pos, granularity)) {}
-  inline sqt(glm::dvec3 pos, sqt_impl::uint granularity) : data_(sqt_impl::sqt_from_point_ndvec3(pos, granularity)) {}
+  inline sqt(glm::dvec2 pos, sqt_impl::uint granularity) : data_(sqt_impl::sqt_from_point_dvec3(conv(pos), granularity)) {}
+  // inline sqt(glm::vec3 pos, sqt_impl::uint granularity) : data_(sqt_impl::sqt_from_point_vec3(pos, granularity)) {}
+  inline sqt(glm::dvec3 pos, sqt_impl::uint granularity) : data_(sqt_impl::sqt_from_point_dvec3(pos, granularity)) {}
   inline sqt(uint8_t major, std::initializer_list<size_t> minors) : data_(sqt_impl::sqt_new()) {
     data_ = sqt_impl::sqt_set_major(data_, major);
     for (auto m : minors) {
@@ -151,51 +158,35 @@ struct sqt {
   [[gnu::const]] inline iterator end() const {
     return iterator{data_, uint8_t(sqt_impl::sqt_count(data_))};
   }
-  [[gnu::const]] inline std::array<glm::vec3, 3> get_points_vec3() const {
+  /*[[gnu::const]] inline std::array<glm::vec3, 3> get_points_vec3() const {
     return sqt_impl::sqt_get_points_vec3(data_);
-  }
-  [[gnu::const]] inline std::array<glm::vec3, 3> get_points_nvec3() const {
-    return sqt_impl::sqt_get_points_nvec3(data_);
-  }
+  }*/
   [[gnu::const]] inline std::array<glm::dvec3, 3> get_points_dvec3() const {
     return sqt_impl::sqt_get_points_dvec3(data_);
   }
-  [[gnu::const]] inline std::array<glm::dvec3, 3> get_points_ndvec3() const {
-    return sqt_impl::sqt_get_points_ndvec3(data_);
+  [[gnu::const]] inline std::array<glm::dvec3, 3> get_raw_points_dvec3() const {
+    return sqt_impl::sqt_get_points_raw_dvec3(data_);
   }
-  [[gnu::const]] inline glm::vec3 get_midpoint_vec3() const {
-    std::array<glm::vec3, 3> ret;
+  /*[[gnu::const]] inline glm::vec3 get_midpoint_vec3() const {
     return sqt_impl::sqt_get_midpoint_vec3(data_);
-  }
-  [[gnu::const]] inline glm::vec3 get_midpoint_nvec3() const {
-    std::array<glm::vec3, 3> ret;
-    return sqt_impl::sqt_get_midpoint_nvec3(data_);
-  }
-  [[gnu::const]] inline glm::vec3 get_midpoint_dvec3() const {
-    std::array<glm::vec3, 3> ret;
+  }*/
+  [[gnu::const]] inline glm::dvec3 get_midpoint_dvec3() const {
     return sqt_impl::sqt_get_midpoint_dvec3(data_);
   }
-  [[gnu::const]] inline glm::vec3 get_midpoint_ndvec3() const {
-    std::array<glm::vec3, 3> ret;
-    return sqt_impl::sqt_get_midpoint_ndvec3(data_);
+  [[gnu::const]] inline glm::dvec3 get_raw_midpoint_dvec3() const {
+    return sqt_impl::sqt_get_raw_midpoint_dvec3(data_);
   }
   [[gnu::const]] inline glm::dvec2 get_midpoint_latlond() const {
-    return conv(get_midpoint_ndvec3());
+    return conv(get_midpoint_dvec3());
   }
-  [[gnu::const]] inline double distance_vec3(sqt other) const {
-    return glm::length(sqt_impl::sqt_get_midpoint_vec3(data_) - sqt_impl::sqt_get_midpoint_vec3(other.data_));
-  }
-  [[gnu::const]] inline double distance_nvec3(sqt other) const {
-    return glm::length(sqt_impl::sqt_get_midpoint_nvec3(data_) - sqt_impl::sqt_get_midpoint_nvec3(other.data_));
-  }
+  /*[[gnu::const]] inline double distance_vec3(sqt other) const {
+    return sqt_impl::sqt_distance_vec3(sqt_impl::sqt_get_midpoint_vec3(data_), sqt_impl::sqt_get_midpoint_vec3(other.data_));
+  }*/
   [[gnu::const]] inline double distance_dvec3(sqt other) const {
-    return glm::length(sqt_impl::sqt_get_midpoint_dvec3(data_) - sqt_impl::sqt_get_midpoint_dvec3(other.data_));
-  }
-  [[gnu::const]] inline double distance_ndvec3(sqt other) const {
-    return glm::length(sqt_impl::sqt_get_midpoint_ndvec3(data_) - sqt_impl::sqt_get_midpoint_ndvec3(other.data_));
+    return sqt_impl::sqt_distance_dvec3(sqt_impl::sqt_get_raw_midpoint_dvec3(data_), sqt_impl::sqt_get_raw_midpoint_dvec3(other.data_));
   }
   [[gnu::const]] inline double distance_latlond(sqt other) const {
-    return sqt_impl::sqt_distance_latlonf(get_midpoint_latlond(), other.get_midpoint_latlond());
+    return sqt_impl::sqt_distance_latlond(get_midpoint_latlond(), other.get_midpoint_latlond());
   }
 
   // private:
@@ -228,6 +219,11 @@ template <> struct std::formatter<sqt> {
 inline std::ostream& operator<<(std::ostream& os, const sqt& value) {
   os << std::format("{}", value);
   return os;
+}
+inline void dbgv(sqt_impl::sqt_t d) {
+  sqt s;
+  s.data_ = d;
+  // std::println("DBGV {}", s);
 }
 
 #endif // SQT_HPP

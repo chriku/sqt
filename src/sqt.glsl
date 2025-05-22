@@ -1,8 +1,10 @@
 #ifdef __cplusplus
 #include <array>
+#include <cmath>
 #include <cstdint>
 #include <glm/glm.hpp>
 #include <initializer_list>
+#include <print>
 #include <utility>
 #define CPP(X) X
 #define GLSL(X)
@@ -16,6 +18,34 @@
 #define unreachable() std::unreachable();
 namespace sqt_impl {
   using namespace glm;
+  inline float my_atan2(float y, float x) {
+    return std::atan2(y, x);
+  }
+  inline double my_atan2(double y, double x) {
+    return std::atan2(y, x);
+  }
+
+  inline float my_sin(float v) {
+    return std::sin(v);
+  }
+  inline double my_sin(double v) {
+    return std::sin(v);
+  }
+
+  inline float my_cos(float v) {
+    return std::cos(v);
+  }
+  inline double my_cos(double v) {
+    return std::cos(v);
+  }
+
+  inline float my_sqrt(float v) {
+    return std::sqrt(v);
+  }
+  inline double my_sqrt(double v) {
+    return std::sqrt(v);
+  }
+
 #else
 #define CPP(X)
 #define GLSL(X) X
@@ -302,9 +332,23 @@ CONSTEXPR uint8_t direction_center = uint8_t(3);
     return n;
   }
 
+  inline void wtfswap(double& a, double& b) {
+    double x = a;
+    a = b;
+    b = x;
+  }
+
+  CONST_INLINE double haversine(dvec2 a, dvec2 b) {
+    double dlat = (b.y - a.y);
+    double dlon = (b.x - a.x);
+
+    double x = my_sin(dlat / 2) * my_sin(dlat / 2) + my_cos(a.y) * my_cos(b.y) * my_sin(dlon / 2) * my_sin(dlon / 2);
+    return 2 * my_atan2(my_sqrt(x), my_sqrt(1 - x));
+  }
+
   CONST_INLINE vec3 sqt_get_point_vec3(uint i) {
     vec2 p = vec2(vertex[i] + dvec2(PI, PI / 2));
-    return vec3(sin(p.y) * cos(p.x), sin(p.y) * sin(p.x), cos(p.y));
+    return vec3(my_sin(p.y) * my_cos(p.x), my_sin(p.y) * my_sin(p.x), my_cos(p.y));
   }
   CONST_INLINE vec3 sqt_cut_edge_vec3(vec3 a, vec3 b) {
     return (a + b) / 2.0f;
@@ -313,26 +357,13 @@ CONSTEXPR uint8_t direction_center = uint8_t(3);
     return (a + b + c) / 3.0f;
   }
   CONST_INLINE float sqt_distance_vec3(vec3 a, vec3 b) {
-    return length(a - b);
-  }
-
-  CONST_INLINE vec3 sqt_get_point_nvec3(uint i) {
-    vec2 p = vec2(vertex[i] + dvec2(PI, PI / 2));
-    return vec3(sin(p.y) * cos(p.x), sin(p.y) * sin(p.x), cos(p.y));
-  }
-  CONST_INLINE vec3 sqt_cut_edge_nvec3(vec3 a, vec3 b) {
-    return normalize((a + b) / 2.0f);
-  }
-  CONST_INLINE vec3 sqt_calc_midpoint_nvec3(vec3 a, vec3 b, vec3 c) {
-    return normalize((a + b + c) / 3.0f);
-  }
-  CONST_INLINE float sqt_distance_nvec3(vec3 a, vec3 b) {
-    return length(a - b);
+    // return length(normalize(a) - normalize(b));
+    return haversine(conv(a), conv(b));
   }
 
   CONST_INLINE dvec3 sqt_get_point_dvec3(uint i) {
     dvec2 p = dvec2(vertex[i] + dvec2(PI, PI / 2));
-    return dvec3(sin(float(p.y)) * cos(float(p.x)), sin(float(p.y)) * sin(float(p.x)), cos(float(p.y)));
+    return dvec3(my_sin(p.y) * my_cos(p.x), my_sin(p.y) * my_sin(p.x), my_cos(p.y));
   }
   CONST_INLINE dvec3 sqt_cut_edge_dvec3(dvec3 a, dvec3 b) {
     return (a + b) / 2.0;
@@ -341,24 +372,11 @@ CONSTEXPR uint8_t direction_center = uint8_t(3);
     return (a + b + c) / 3.0;
   }
   CONST_INLINE double sqt_distance_dvec3(dvec3 a, dvec3 b) {
-    return length(a - b);
+    return length(normalize(a) - normalize(b));
+    // return haversine(conv(a), conv(b));
   }
 
-  CONST_INLINE dvec3 sqt_get_point_ndvec3(uint i) {
-    dvec2 p = dvec2(vertex[i] + dvec2(PI, PI / 2));
-    return dvec3(sin(float(p.y)) * cos(float(p.x)), sin(float(p.y)) * sin(float(p.x)), cos(float(p.y)));
-  }
-  CONST_INLINE dvec3 sqt_cut_edge_ndvec3(dvec3 a, dvec3 b) {
-    return normalize((a + b) / 2.0);
-  }
-  CONST_INLINE dvec3 sqt_calc_midpoint_ndvec3(dvec3 a, dvec3 b, dvec3 c) {
-    return normalize((a + b + c) / 3.0);
-  }
-  CONST_INLINE double sqt_distance_ndvec3(dvec3 a, dvec3 b) {
-    return length(a - b);
-  }
-
-  CONST_INLINE vec2 sqt_get_point_latlonf(uint i) {
+  /*CONST_INLINE vec2 sqt_get_point_latlonf(uint i) {
     return vec2(vertex[i]);
   }
   CONST_INLINE vec2 sqt_cut_edge_latlonf(vec2 a, vec2 b) {
@@ -383,13 +401,50 @@ CONSTEXPR uint8_t direction_center = uint8_t(3);
   }
   CONST_INLINE vec2 sqt_calc_midpoint_latlonf(vec2 a, vec2 b, vec2 c) {
     return latlonf_import((latlonf_export(a) + latlonf_export(b) + latlonf_export(c)) / 3.0f);
-  }
-  CONST_INLINE float sqt_distance_latlonf(vec2 a, vec2 b) {
-    float dlat = (b.y - a.y);
-    float dlon = (b.x - a.x);
+  }*/
+  CONST_INLINE double sqt_distance_latlond(dvec2 a, dvec2 b) {
+    double dlat = (b.y - a.y);
+    double dlon = (b.x - a.x);
 
-    float x = sin(dlat / 2) * sin(dlat / 2) + cos(a.y) * cos(b.y) * sin(dlon / 2) * sin(dlon / 2);
-    return 2 * atan2(sqrt(x), sqrt(1 - x));
+    double x = my_sin(dlat / 2) * my_sin(dlat / 2) + my_cos(a.y) * my_cos(b.y) * my_sin(dlon / 2) * my_sin(dlon / 2);
+    return 2 * my_atan2(my_sqrt(x), my_sqrt(1 - x));
+  }
+
+  CONST_INLINE retarray(double, 3) project(retarray(dvec3, 3) p, dvec3 dir, bool shit) {
+    dvec3 v0v1 = p[1] - p[0];
+    dvec3 v0v2 = p[2] - p[0];
+    dvec3 pvec = cross(dir, v0v2);
+    double det = dot(v0v1, pvec);
+    assert(det >= 0);
+    /*if (fabs(det) < 0.00001)
+      return 1;*/
+    double invDet = 1 / det;
+
+    dvec3 tvec = normalize(-p[0]);
+    double u = dot(tvec, pvec) * invDet;
+    /*assert(u >= 0);
+    assert(u <= 1);
+    if (u < 0 || u > 1)
+      assert(false);*/
+    u = clamp(u, 0.0, 1.0);
+
+    dvec3 qvec = cross(tvec, v0v1);
+    double v = dot(dir, qvec) * invDet;
+    v = clamp(v, 0.0, 1.0);
+    /*    assert(v >= 0);
+    std::println("UV {} + {} = {} (in {})", u, v, u + v, shit);
+    assert((u + v) <= 1);
+    if (v < 0 || u + v > 1)
+      assert(false);*/
+
+    double t = dot(v0v2, qvec) * invDet;
+
+    retarray(double, 3) ret;
+    ret[0] = u;
+    ret[1] = v;
+    ret[2] = 1 - (u + v);
+    assert(fabs(1 - (ret[0] + ret[1] + ret[2])) < 0.01);
+    return ret;
   }
 
 #define IMPL_IO(name, ET, T)                                                                                                               \
@@ -404,7 +459,7 @@ CONSTEXPR uint8_t direction_center = uint8_t(3);
       ret[1] = sqt_cut_edge_##name(oa, oc);                                                                                                \
     return ret;                                                                                                                            \
   }                                                                                                                                        \
-  CONST_INLINE retarray(T, 3) sqt_get_points_##name(sqt_t v) {                                                                             \
+  CONST_INLINE retarray(T, 3) sqt_get_points_raw_##name(sqt_t v) {                                                                         \
     uint major = sqt_major(v);                                                                                                             \
     assume(major < 20);                                                                                                                    \
     T a = sqt_get_point_##name(index_table[major][0]);                                                                                     \
@@ -422,8 +477,19 @@ CONSTEXPR uint8_t direction_center = uint8_t(3);
     retarray(T, 3) ret = {a, b, c};                                                                                                        \
     return ret;                                                                                                                            \
   }                                                                                                                                        \
+  CONST_INLINE retarray(T, 3) sqt_get_points_##name(sqt_t v) {                                                                             \
+    retarray(T, 3) ret = sqt_get_points_raw_##name(v);                                                                                     \
+    ret[0] = normalize(ret[0]);                                                                                                            \
+    ret[1] = normalize(ret[1]);                                                                                                            \
+    ret[2] = normalize(ret[2]);                                                                                                            \
+    return ret;                                                                                                                            \
+  }                                                                                                                                        \
   CONST_INLINE T sqt_get_midpoint_##name(sqt_t v) {                                                                                        \
-    retarray(T, 3) vals = sqt_get_points_##name(v);                                                                                        \
+    retarray(T, 3) vals = sqt_get_points_raw_##name(v);                                                                                    \
+    return normalize(sqt_calc_midpoint_##name(vals[0], vals[1], vals[2]));                                                                 \
+  }                                                                                                                                        \
+  CONST_INLINE T sqt_get_raw_midpoint_##name(sqt_t v) {                                                                                    \
+    retarray(T, 3) vals = sqt_get_points_raw_##name(v);                                                                                    \
     return sqt_calc_midpoint_##name(vals[0], vals[1], vals[2]);                                                                            \
   }                                                                                                                                        \
   CONST_INLINE T sqt_get_major_midpoint_##name(uint major) {                                                                               \
@@ -448,29 +514,50 @@ CONSTEXPR uint8_t direction_center = uint8_t(3);
       v = sqt_set_major(v, major);                                                                                                         \
     }                                                                                                                                      \
     assume(granularity <= minor_count);                                                                                                    \
+    retarray(double, 3) pts = project(sqt_get_points_raw_##name(v), pos, false);                                                           \
     _Pragma("unroll 27") for (uint i = 0; i < granularity; i++) {                                                                          \
-      retarray(T, 3) p = sqt_get_points_##name(v);                                                                                         \
-      retarray(T, 3) sd = sqt_get_point_subdiv_##name(0, p[0], p[1], p[2]);                                                                \
-      ET distance = sqt_distance_##name(pos, sqt_calc_midpoint_##name(sd[0], sd[1], sd[2]));                                               \
-      uint minor = 0;                                                                                                                      \
-      _Pragma("unroll 4") for (uint i = 1; i < 4; i++) {                                                                                   \
-        retarray(T, 3) sd = sqt_get_point_subdiv_##name(i, p[0], p[1], p[2]);                                                              \
-        ET d = sqt_distance_##name(pos, sqt_calc_midpoint_##name(sd[0], sd[1], sd[2]));                                                    \
-        if (d < distance) {                                                                                                                \
-          minor = i;                                                                                                                       \
-          distance = d;                                                                                                                    \
-        }                                                                                                                                  \
+      if (pts[0] >= (pts[1] + pts[2])) {                                                                                                   \
+        v = sqt_add_minor(v, 2);                                                                                                           \
+        pts[1] *= 2;                                                                                                                       \
+        pts[2] *= 2;                                                                                                                       \
+        wtfswap(pts[1], pts[2]);                                                                                                           \
+        pts[0] = 1 - (pts[1] + pts[2]);                                                                                                    \
+        assert(fabs(1 - (pts[0] + pts[1] + pts[2])) < 0.01);                                                                               \
+      } else if (pts[2] >= (pts[0] + pts[1])) {                                                                                            \
+        v = sqt_add_minor(v, 0);                                                                                                           \
+        pts[0] *= 2;                                                                                                                       \
+        pts[1] *= 2;                                                                                                                       \
+        wtfswap(pts[1], pts[0]);                                                                                                           \
+        pts[2] = 1 - (pts[0] + pts[1]);                                                                                                    \
+        assert(fabs(1 - (pts[0] + pts[1] + pts[2])) < 0.01);                                                                               \
+      } else if (pts[1] >= (pts[0] + pts[2])) {                                                                                            \
+        v = sqt_add_minor(v, 1);                                                                                                           \
+        pts[0] *= 2;                                                                                                                       \
+        pts[2] *= 2;                                                                                                                       \
+        wtfswap(pts[0], pts[2]);                                                                                                           \
+        pts[1] = 1 - (pts[0] + pts[2]);                                                                                                    \
+        assert(fabs(1 - (pts[0] + pts[1] + pts[2])) < 0.01);                                                                               \
+      } else {                                                                                                                             \
+        v = sqt_add_minor(v, 3);                                                                                                           \
+        pts[0] = 1 - (pts[0] * 2);                                                                                                         \
+        pts[1] = 1 - (pts[1] * 2);                                                                                                         \
+        pts[2] = 1 - (pts[2] * 2);                                                                                                         \
+        assert(fabs(1 - (pts[0] + pts[1] + pts[2])) < 0.01);                                                                               \
       }                                                                                                                                    \
-      v = sqt_add_minor(v, minor);                                                                                                         \
+      dbgv(v);                                                                                                                             \
     }                                                                                                                                      \
     return v;                                                                                                                              \
   }
 
-  IMPL_IO(vec3, float, vec3)
-  IMPL_IO(nvec3, float, vec3)
+  /*CONST_INLINE sqt_t sqt_from_point2_dvec3(dvec3 pos, uint granularity) {
+    _Pragma("unroll 20") for (uint i = 0; i < 20; i++) {
+      retarray(dvec3, 3) p = sqt_get_points_raw_dvec3(v);
+    }
+    assert(false);
+  }*/
+
+  // IMPL_IO(vec3, float, vec3)
   IMPL_IO(dvec3, double, dvec3)
-  IMPL_IO(ndvec3, double, dvec3)
-  IMPL_IO(latlonf, float, vec2)
 
 // INLINE vec3 sqt_get_position(sqt_t v) {}
 #ifdef __cplusplus

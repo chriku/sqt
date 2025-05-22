@@ -6,7 +6,8 @@
 
 void mark_coast(sqt_tree<tile>& tree) {
   std::list<sqt> todo;
-  auto fl = tree.first_leaf(sqt(0, {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}));
+  // auto fl = tree.first_leaf(sqt(0, {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}));
+  auto fl = tree.first_leaf(sqt({0, 0}, 27));
   assert(fl != nullptr);
   if (*fl != tile::undefined) {
     std::println("Invalid zero, zero: {}", size_t(*fl));

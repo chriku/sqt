@@ -4,6 +4,7 @@
 #include <filesystem>
 #include <forward_list>
 #include <fstream>
+#include <glm/gtx/string_cast.hpp>
 #include <list>
 #include <osmformat.pb.h>
 #include <print>
@@ -27,7 +28,9 @@ struct osm_reader {
   std::mutex positions_mutex;
   std::map<uint64_t, sqt> global_positions;
   std::chrono::steady_clock::time_point start1;
-  osm_reader() : sema(std::jthread::hardware_concurrency() - 1), adder(std::bind(&osm_reader::run_adder, this, _1)) {
+  osm_reader()
+      : // sema(std::jthread::hardware_concurrency() - 1),
+        sema(1), adder(std::bind(&osm_reader::run_adder, this, _1)) {
     adder.join();
     std::println("Finished distributing. Waiting for parse threads");
     reader.clear();
@@ -79,7 +82,7 @@ struct osm_reader {
       //  if (reader.size() >= 1)
       // reader.pop_front();
     }
-    sema.release(std::jthread::hardware_concurrency() + 1);
+    // sema.release(std::jthread::hardware_concurrency() + 1);
   }
   void read_header_block(const std::string& s) {
     OSMPBF::HeaderBlock block;
@@ -142,6 +145,7 @@ struct osm_reader {
           id += ido;
           lat += lato;
           lon += lono;
+          std::println("DECODING {}", glm::to_string(glm::dvec3(conv({offlon + (mullon * lon), offlat + (mullat * lat)}))));
           positions.emplace(id, sqt(glm::dvec3(conv({offlon + (mullon * lon), offlat + (mullat * lat)})), 13));
         }
       }
@@ -219,7 +223,7 @@ void read_osm(sqt_tree<tile>& tree) {
                                                 std::views::transform([](sqt n) { return n.get_neighbors(); })) |
                                                 std::views::join),
                   {},
-                  [&](sqt n2) { return n2.distance_vec3(b); });
+                  [&](sqt n2) { return n2.distance_dvec3(b); });
               if (nc == cur)
                 break;
               cur = nc;
