@@ -146,7 +146,7 @@ struct osm_reader {
           id += ido;
           lat += lato;
           lon += lono;
-          positions.emplace(id, sqt(glm::dvec3(conv({offlon + (mullon * lon), offlat + (mullat * lat)})), 13));
+          positions.emplace(id, sqt(glm::dvec3(conv({offlon + (mullon * lon), offlat + (mullat * lat)})), 15));
         }
       }
     }

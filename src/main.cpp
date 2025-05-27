@@ -6,6 +6,7 @@
 
 #include "min_heap.hpp"
 #include "osm.hpp"
+#include <etl/flat_map.h>
 #include <etl/map.h>
 #include <flat_set>
 #include <generator>
@@ -186,6 +187,23 @@ struct distance_pair_less {
   }
 };
 
+using dist_map = etl::flat_map<uint32_t, uint64_t, 14>;
+void route(min_heap<idx_heap_impl<4000000>, fixed_distance_container<4000000>>& frontier, std::vector<dist_map>& distances, uint32_t end) {
+  while (frontier.impl_.size() >= 1) {
+    assert(!frontier.empty());
+    assert(frontier.impl_.size() >= 1);
+    auto [node, dist] = frontier.top();
+    frontier.pop();
+    if (node == end)
+      break;
+    assert(node < distances.size());
+    for (auto [nbr, len] : distances[node]) {
+      size_t ndist = dist + len;
+      frontier.push({nbr, ndist});
+    }
+  }
+}
+
 #if 1
 TEST_CASE("") {
   std::ofstream file;
@@ -240,17 +258,29 @@ TEST_CASE("") {
     std::println("Generating points... done in {}s",
         std::chrono::duration_cast<std::chrono::duration<double>>(std::chrono::steady_clock::now() - start).count());
   }
-  std::map<std::pair<sqt, sqt>, uint64_t, distance_pair_less> distances;
+  std::map<sqt, uint32_t> reverse_points;
+  using dist_map = etl::flat_map<uint32_t, uint64_t, 14>;
+  std::vector<dist_map> distances;
+  {
+    std::println("Setup point structure... ({}B per distance)", sizeof(dist_map));
+    auto start = std::chrono::steady_clock::now();
+    for (auto [i, pt] : points | std::views::enumerate)
+      reverse_points.emplace(pt, i);
+    distances.resize(points.size());
+    std::println("Setup point structure... done in {}s",
+        std::chrono::duration_cast<std::chrono::duration<double>>(std::chrono::steady_clock::now() - start).count());
+  }
   {
     std::println("Finding neighbors...");
     auto start = std::chrono::steady_clock::now();
 
     std::atomic<size_t> point_index = 0;
     std::vector<std::jthread> threads;
-    std::mutex distmtx;
+    std::array<std::mutex, 65537> distmtx;
+    size_t maxnbr = 0;
     for (size_t i = 0; i < std::jthread::hardware_concurrency(); i++)
       threads.emplace_back([&] {
-        std::map<std::pair<sqt, sqt>, uint64_t, distance_pair_less> mydist;
+        size_t max = 0;
         while (true) {
           auto idx = point_index++;
           if (idx >= points.size())
@@ -291,87 +321,114 @@ TEST_CASE("") {
             uint64_t dist = x.distance_latlond(o) * 6371000000.0; // Earth diameter in mm
             if ((x != o) && (dist < 30000000)) {                  // 30km in mm
               assert(dist != 0);
-              mydist[{x, o}] = dist;
-              mydist[{o, x}] = dist;
+              {
+                std::unique_lock lock(distmtx.at(reverse_points.at(x) % distmtx.size()));
+                distances.at(reverse_points.at(x))[reverse_points.at(o)] = dist;
+                size_t v = distances.at(reverse_points.at(x)).size();
+                if (v > max)
+                  max = v;
+              }
+              {
+                std::unique_lock lock(distmtx.at(reverse_points.at(o) % distmtx.size()));
+                distances.at(reverse_points.at(o))[reverse_points.at(x)] = dist;
+                size_t v = distances.at(reverse_points.at(o)).size();
+                if (v > max)
+                  max = v;
+              }
             }
           }
         }
-        std::unique_lock lock(distmtx);
-        distances.merge(mydist);
+        std::unique_lock lock(distmtx.at(0));
+        if (max > maxnbr)
+          maxnbr = max;
       });
     for (auto& t : threads)
       t.join();
 
-    std::println("DIST {}", distances.size());
-    std::println("Finding neighbors... done in {}s",
-        std::chrono::duration_cast<std::chrono::duration<double>>(std::chrono::steady_clock::now() - start).count());
+    std::println("Finding neighbors... done in {}s; max neighbors: {}",
+        std::chrono::duration_cast<std::chrono::duration<double>>(std::chrono::steady_clock::now() - start).count(),
+        maxnbr);
   }
+#if 1
   {
     std::println("Finding simple routes...");
     auto start = std::chrono::steady_clock::now();
 
-    size_t count = 1;
-    std::mt19937 generator(1748303721);
-    for (size_t i = 0; i < count; i++) {
-      std::uniform_int_distribution<size_t> distr(0, points.size() - 1);
-      auto start = *(points.begin() + distr(generator));
-      auto end = *(points.begin() + distr(generator));
-      auto startt = std::chrono::steady_clock::now();
-      // start = *points.lower_bound(sqt({5.924440699059232 / 180.0 * sqt_impl::PI, 40.65103747458522 / 180.0 * sqt_impl::PI}, 27));
-      // end = *points.lower_bound(sqt({0 / 180.0 * sqt_impl::PI, 0 / 180.0 * sqt_impl::PI}, 27));
-      if (start == end) {
-        std::println("NOPE!");
-        continue;
-      }
-      std::unordered_map<sqt, uint64_t> routes;
-      routes[start] = 0;
-      std::unordered_map<sqt, sqt> prevs;
-      using distpair = std::pair<uint64_t, sqt>;
-      min_heap<sqt_heap_impl, map_distance_container<sqt>> frontier;
-      frontier.push({start, 0});
-      while (!frontier.empty()) {
-        auto [node, dist] = frontier.top();
-        frontier.pop();
-        if (node == end)
-          break;
-        auto it = routes.find(node);
-        assert(it != routes.end());
-        if (it->second < dist)
-          continue;
-        for (auto [addr, len] :
-            std::ranges::subrange(distances.upper_bound({node, sqt()}), distances.end()) |
-                std::views::take_while([&](const std::pair<std::pair<sqt, sqt>, uint64_t>& x) { return x.first.first == node; })) {
-          const auto& [_, nbr] = addr;
-          assert(it->second == dist);
-          size_t ndist = dist + len;
-          auto it = routes.find(nbr);
-          if ((it == routes.end()) || (it->second > ndist)) {
-            if (frontier.push({nbr, ndist})) {
-              routes[nbr] = ndist;
-              prevs[nbr] = node;
-            }
+    size_t count = 100;
+    size_t errors = 0;
+    for (size_t i = 0; i < count; i++)
+      try {
+        auto startt = std::chrono::steady_clock::now();
+        std::mt19937 generator(1748303721 + i);
+        std::uniform_int_distribution<size_t> distr(0, points.size() - 1);
+        auto start = *(points.begin() + distr(generator));
+        auto end = reverse_points.at(*(points.begin() + distr(generator)));
+        // start = *points.lower_bound(sqt({5.924440699059232 / 180.0 * sqt_impl::PI, 40.65103747458522 / 180.0 * sqt_impl::PI}, 27));
+        // end = reverse_points.at(*points.lower_bound(sqt({0 / 180.0 * sqt_impl::PI, 0 / 180.0 * sqt_impl::PI}, 27)));
+        // end = reverse_points.at(
+        //     *points.lower_bound(sqt({34.25509008417936 / 180.0 * sqt_impl::PI, 43.291032400186936 / 180.0 * sqt_impl::PI}, 27)));
+        if (start == *(points.begin() + end)) {
+          throw std::runtime_error("No movement");
+        }
+        // std::unordered_map<sqt, uint64_t> routes;
+        // routes[start] = 0;
+        // std::unordered_map<sqt, sqt> prevs;
+        using distpair = std::pair<uint64_t, sqt>;
+        auto* frontier = new min_heap<idx_heap_impl<4000000>, fixed_distance_container<4000000>>();
+        frontier->push({reverse_points.at(start), 0});
+        auto startt2 = std::chrono::steady_clock::now();
+        route(*frontier, distances, end);
+        auto startt3 = std::chrono::steady_clock::now();
+        std::vector<sqt> outpoints;
+        outpoints.reserve(4000);
+        {
+          sqt cur = *(points.begin() + end);
+          while (cur != start) {
+            auto prev = [&] {
+              auto cur_idx = reverse_points.at(cur);
+              auto md = frontier->distance_for_element({cur_idx, -1ULL});
+              for (auto [nbr, len] : distances.at(cur_idx)) {
+                if ((frontier->distance_for_element({nbr, -1ULL}) + len) == md) {
+                  cur = *(points.begin() + nbr);
+                  return;
+                }
+              }
+              for (auto [nbr, len] : distances.at(cur_idx)) {
+                std::println("ERRORING {} + {} = {} != {}",
+                    frontier->distance_for_element({nbr, -1ULL}),
+                    len,
+                    frontier->distance_for_element({nbr, -1ULL}) + len,
+                    md);
+              }
+              throw std::runtime_error("No route");
+            };
+            prev();
+            outpoints.push_back(cur);
           }
+          assert(cur == start);
         }
-      }
-      std::println("DJK {}s", std::chrono::duration_cast<std::chrono::duration<double>>(std::chrono::steady_clock::now() - startt).count());
-      // if (true)
-      //
-      {
-        nlohmann::json j = nlohmann::json::array();
-        sqt cur = end;
-        while (prevs.contains(cur)) {
-          j.push_back(geojson(cur));
-          assert(cur != prevs.at(cur));
-          cur = prevs.at(cur);
+        if (false) {
+          nlohmann::json j = nlohmann::json::array();
+          for (auto cur : outpoints)
+            j.push_back(geojson(cur));
+          std::println("{}", j.dump());
         }
-        j.push_back(geojson(start));
-        std::println("{}", j.dump());
+
+        std::println("DJK (Seed {}), resulted in {} points {}s -> {}s",
+            i,
+            outpoints.size(),
+            std::chrono::duration_cast<std::chrono::duration<double>>(std::chrono::steady_clock::now() - startt).count(),
+            std::chrono::duration_cast<std::chrono::duration<double>>((std::chrono::steady_clock::now() - startt3) + (startt2 - startt))
+                .count());
+      } catch (const std::exception& e) {
+        std::println("Error whle finding route: {}", e.what());
+        errors++;
       }
-    }
 
     double t = std::chrono::duration_cast<std::chrono::duration<double>>(std::chrono::steady_clock::now() - start).count();
-    std::println("Finding simple routes... done in {}s ({}s average)", t, t / count);
+    std::println("Finding simple routes... done in {}s ({}s average), {} errors", t, t / count, errors);
   }
+#endif
   /*{
     std::println("Writing .obj...");
     auto start2 = std::chrono::steady_clock::now();

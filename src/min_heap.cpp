@@ -25,3 +25,27 @@ TEST_CASE("simple_heap_action") {
   CHECK(heap.push({sqt(3, {}), 7}) == false);
   CHECK(heap.push({sqt(3, {}), 3}) == true);
 }
+TEST_CASE("simple_heap_action") {
+  min_heap<idx_heap_impl<3>, fixed_distance_container<3>> heap;
+  heap.push({2, 3});
+  heap.push({0, 1});
+  heap.push({1, 2});
+  CHECK(!heap.empty());
+  CHECK(heap.top().first == 0);
+  heap.pop();
+  CHECK(!heap.empty());
+  CHECK(heap.top().first == 1);
+  heap.pop();
+  CHECK(!heap.empty());
+  CHECK(heap.top().first == 2);
+  heap.pop();
+  CHECK(heap.empty());
+}
+TEST_CASE("simple_heap_action") {
+  min_heap<idx_heap_impl<3>, fixed_distance_container<3>> heap;
+  heap.push({2, 5});
+  heap.push({0, 1});
+  heap.push({1, 2});
+  CHECK(heap.push({2, 7}) == false);
+  CHECK(heap.push({2, 3}) == true);
+}
