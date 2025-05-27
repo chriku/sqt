@@ -12,8 +12,11 @@
 #define INLINE inline
 #define CONSTEXPR constexpr
 #define OUT(v, n) v& n
-// #define assume(X) [[assume(X)]]
-#define assume(X) assert(X)
+#ifdef NDEBUG
+#define assertume(X) [[assertume(X)]]
+#else
+#define assertume(X) assert(X)
+#endif
 #define retarray(T, n) std::array<T, n>
 #define unreachable() std::unreachable();
 namespace sqt_impl {
@@ -54,7 +57,7 @@ namespace sqt_impl {
 #define CONSTEXPR const
 #define OUT(v, n) out v n
 #define assert(X)
-#define assume(X)
+#define assertume(X)
 #define retarray(T, n) T[n]
 #define unreachable()
 #endif
@@ -173,42 +176,42 @@ CONSTEXPR uint8_t direction_center = uint8_t(3);
 
   CONST_INLINE uint32_t sqt_count(sqt_t v) {
     uint32_t ret = uint32_t((v._data >> count_offset) & count_bits);
-    assume(ret <= 27);
+    assertume(ret <= 27);
     return ret;
   }
   CONST_INLINE uint32_t sqt_major(sqt_t v) {
     uint32_t ret = uint32_t((v._data >> major_offset) & major_bits);
-    assume(ret < 20);
+    assertume(ret < 20);
     return ret;
   }
   CONST_INLINE uint32_t sqt_minor(sqt_t v, uint32_t i) {
     assert(i < sqt_count(v));
-    assume(i < sqt_count(v));
-    assume(i < minor_count);
+    assertume(i < sqt_count(v));
+    assertume(i < minor_count);
     uint32_t ret = uint32_t(v._data >> (major_offset - (uint64_t((i + 1) * 2)))) & uint32_t(0x3);
-    assume(ret < 20);
+    assertume(ret < 20);
     return ret;
   }
   CONST_INLINE sqt_t sqt_set_count(sqt_t v, uint32_t c) {
     assert(c <= minor_count);
-    assume(c <= minor_count);
+    assertume(c <= minor_count);
     v._data = (v._data & inv_count_mask & (inv_minor_mask | (((uint64_t(1) << (c * 2)) - uint64_t(1)) << (major_offset - (c * 2))))) |
               (uint64_t(c) << count_offset);
     return v;
   }
   CONST_INLINE sqt_t sqt_set_major(sqt_t v, uint32_t m) {
     assert(m < major_count);
-    assume(m < major_count);
+    assertume(m < major_count);
     v._data = (v._data & inv_major_mask) | (uint64_t(m) << major_offset);
     return v;
   }
   CONST_INLINE sqt_t sqt_add_minor(sqt_t v, uint32_t m) {
     uint32_t c = sqt_count(v);
     assert(c < minor_count);
-    assume(c < minor_count);
+    assertume(c < minor_count);
     v = sqt_set_count(v, c + 1);
     assert(m < 4);
-    assume(m < 4);
+    assertume(m < 4);
     v._data = v._data | (uint64_t(m & 0x3) << uint64_t(major_offset - ((c + 1) * 2)));
     return v;
   }
@@ -220,9 +223,9 @@ CONSTEXPR uint8_t direction_center = uint8_t(3);
   CONST_INLINE sqt_t sqt_transform_to_adjacent(sqt_t v, uint side) {
     sqt_t ret = sqt_new();
     uint target_primitive = primitive_table[sqt_major(v)][side];
-    assume(target_primitive < 20);
+    assertume(target_primitive < 20);
     ret = sqt_set_major(ret, target_primitive);
-    assume(sqt_count(v) <= 27);
+    assertume(sqt_count(v) <= 27);
 #pragma unroll 27
     for (uint i = 0; i < sqt_count(v); i++) {
       if (sqt_major(v) > 4 && target_primitive > 4 && sqt_major(v) < 15 && target_primitive < 15) {
@@ -282,7 +285,7 @@ CONSTEXPR uint8_t direction_center = uint8_t(3);
     sqt_t current = sqt_set_major(sqt_new(), sqt_major(v));
     uint32_t current_state = 0;
     uint count = sqt_count(v);
-    assume(count <= minor_count);
+    assertume(count <= minor_count);
 #pragma unroll 27
     for (uint i = 0; i < count; i++) {
       uint32_t next = sqt_minor(v, i);
@@ -462,12 +465,12 @@ CONSTEXPR uint8_t direction_center = uint8_t(3);
   }                                                                                                                                        \
   CONST_INLINE retarray(T, 3) sqt_get_points_raw_##name(sqt_t v) {                                                                         \
     uint major = sqt_major(v);                                                                                                             \
-    assume(major < 20);                                                                                                                    \
+    assertume(major < 20);                                                                                                                 \
     T a = sqt_get_point_##name(index_table[major][0]);                                                                                     \
     T b = sqt_get_point_##name(index_table[major][1]);                                                                                     \
     T c = sqt_get_point_##name(index_table[major][2]);                                                                                     \
     const uint count = sqt_count(v);                                                                                                       \
-    assume(count <= minor_count);                                                                                                          \
+    assertume(count <= minor_count);                                                                                                       \
     _Pragma("unroll 27") for (uint i = 0; i < count; i++) {                                                                                \
       uint minor = sqt_minor(v, i);                                                                                                        \
       retarray(T, 3) subdiv = sqt_get_point_subdiv_##name(minor, a, b, c);                                                                 \
@@ -500,11 +503,11 @@ CONSTEXPR uint8_t direction_center = uint8_t(3);
   }                                                                                                                                        \
   CONST_INLINE sqt_t sqt_from_point_##name(T pos, uint granularity) {                                                                      \
     assert(granularity <= minor_count);                                                                                                    \
-    assume(granularity <= minor_count);                                                                                                    \
+    assertume(granularity <= minor_count);                                                                                                 \
     {                                                                                                                                      \
       _Pragma("unroll 20") for (uint i = 0; i < 20; i++) {                                                                                 \
         sqt_t v = sqt_set_major(sqt_new(), i);                                                                                             \
-        assume(granularity <= minor_count);                                                                                                \
+        assertume(granularity <= minor_count);                                                                                             \
         retarray(double, 3) pts = project(sqt_get_points_raw_##name(v), normalize(pos));                                                   \
         if (pts[0] >= 0) {                                                                                                                 \
           _Pragma("unroll 27") for (uint i = 0; i < granularity; i++) {                                                                    \

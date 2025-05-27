@@ -1,7 +1,7 @@
 #include "sqt.hpp"
 #include "sqt_tree.hpp"
 
-#define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
+#define DOCTEST_CONFIG_IMPLEMENT
 #include "doctest/doctest.h"
 
 #include "min_heap.hpp"
@@ -16,8 +16,11 @@
 #include <queue>
 #include <random>
 #include <ranges>
+#include <restinio/all.hpp>
 #include <set>
 #include <thread>
+
+using namespace std::literals;
 
 double DEG36 = 0.62831853071795864768;
 double DEG72 = 1.25663706143591729537;
@@ -147,48 +150,28 @@ inline auto find_points_in_zone(const auto& points, sqt a) {
          std::views::take_while([a](sqt b) { return a == b.counted(a.count()); });
 }
 
-inline nlohmann::json geojson(glm::dvec2 x) {
+inline glm::dvec2 degreefy(glm::dvec2 x) {
   while (x.x < -M_PI)
     x.x += M_PI * 2;
   while (x.x > M_PI)
     x.x -= M_PI * 2;
   return {x.x / M_PI * 180.0, (x.y / M_PI * 180.0)};
 }
+inline nlohmann::json geojson(glm::dvec2 x) {
+  return {degreefy(x).x, degreefy(x).y};
+}
 inline nlohmann::json geojson(sqt x) {
   return geojson(x.get_midpoint_latlond());
 }
 
-#if 1
-TEST_CASE("acc1") {
-  glm::dvec2 pt{3.15476763892379, -0.0015830220729089461};
-  auto v = sqt(pt, 24);
-  CHECK((sqt_impl::sqt_distance_latlond(pt, v.get_midpoint_latlond()) * 6000) < 20);
-}
-TEST_CASE("acc2") {
-  glm::dvec2 pt{3.15476763892379, -0.0015830220729089461};
-  auto v = sqt(glm::vec2(pt), 27);
-  CHECK((sqt_impl::sqt_distance_latlond(pt, conv(v.get_midpoint_dvec3())) * 6000) < 20);
-}
-TEST_CASE("acc3") {
-  glm::dvec2 pt{3.1242046036682742, -0.00610426997092528};
-  auto v = sqt(pt, 24);
-  std::println("FOUND {}", v);
-  CHECK((sqt_impl::sqt_distance_latlond(pt, v.get_midpoint_latlond()) * 6000) < 20);
-}
-#endif
-
-struct distance_pair_less {
-  bool operator()(std::pair<sqt, sqt> a, std::pair<sqt, sqt> b) const {
-    if (a.first < b.first)
-      return true;
-    if (a.first > b.first)
-      return false;
-    return a.second < b.second;
-  }
-};
-
 using dist_map = etl::flat_map<uint32_t, uint64_t, 14>;
-void route(min_heap<idx_heap_impl<4000000>, fixed_distance_container<4000000>>& frontier, std::vector<dist_map>& distances, uint32_t end) {
+void route(std::flat_set<sqt>& points,
+    std::map<sqt, uint32_t>& reverse_points,
+    min_heap<idx_heap_impl<4000000>, fixed_distance_container<4000000>>& frontier,
+    std::vector<dist_map>& distances,
+    sqt start,
+    uint32_t end,
+    std::vector<sqt>& outpoints) {
   while (frontier.impl_.size() >= 1) {
     assert(!frontier.empty());
     assert(frontier.impl_.size() >= 1);
@@ -197,18 +180,74 @@ void route(min_heap<idx_heap_impl<4000000>, fixed_distance_container<4000000>>& 
     if (node == end)
       break;
     assert(node < distances.size());
-    for (auto [nbr, len] : distances[node]) {
+    for (auto& [nbr, len] : distances[node]) {
       size_t ndist = dist + len;
       frontier.push({nbr, ndist});
     }
   }
+  {
+    sqt cur = *(points.begin() + end);
+    while (cur != start) {
+      auto prev = [&] {
+        auto cur_idx = reverse_points.at(cur);
+        auto md = frontier.distance_for_element({cur_idx, -1ULL});
+        for (auto& [nbr, len] : distances.at(cur_idx)) {
+          if ((frontier.distance_for_element({nbr, -1ULL}) + len) == md) {
+            cur = *(points.begin() + nbr);
+            return;
+          }
+        }
+        for (auto& [nbr, len] : distances.at(cur_idx)) {
+          std::println("ERRORING {} + {} = {} != {}",
+              frontier.distance_for_element({nbr, -1ULL}),
+              len,
+              frontier.distance_for_element({nbr, -1ULL}) + len,
+              md);
+        }
+        throw std::runtime_error("No route");
+      };
+      prev();
+      outpoints.push_back(cur);
+    }
+    assert(cur == start);
+  }
 }
 
-#if 1
-TEST_CASE("") {
-  std::ofstream file;
-  file.exceptions(std::ios::badbit | std::ios::failbit);
-  file.open("/home/christian/sqt/tree.obj", std::ios::trunc);
+struct projection {
+  virtual bool is_mercator() {
+    return false;
+  }
+  virtual bool consider(sqt) = 0;
+  virtual glm::dvec2 project(glm::dvec2) = 0;
+  inline glm::dvec2 project(sqt s) {
+    return project(s.get_midpoint_latlond());
+  }
+};
+struct mercator : projection {
+  bool is_mercator() override {
+    return true;
+  }
+  bool consider(sqt) override {
+    return true;
+  }
+  glm::dvec2 project(glm::dvec2 ll) override {
+    while (ll.x < -M_PI)
+      ll.x += M_PI * 2;
+    while (ll.x > M_PI)
+      ll.x -= M_PI * 2;
+    return {((ll.x / M_PI) + 1) * 500, ((-ll.y / M_PI) + 0.5) * 500};
+  }
+  inline glm::dvec2 project(sqt s) {
+    return project(s.get_midpoint_latlond());
+  }
+};
+
+int main(int argc, char** argv) {
+  doctest::Context context;
+  context.applyCommandLine(argc, argv);
+  int res = context.run();  // run
+  if (context.shouldExit()) // important - query flags (and --exit) rely on the user doing this
+    return res;             // propagate the result of the tests
 
   sqt_tree<tile> tree(tile::undefined);
   read_osm(tree);
@@ -254,12 +293,11 @@ TEST_CASE("") {
         pts.erase(it);
     }
     points = {std::sorted_unique, pts.begin(), pts.end()};
-    std::println("POINTS {} => in_water {}", point_count, points.size());
-    std::println("Generating points... done in {}s",
-        std::chrono::duration_cast<std::chrono::duration<double>>(std::chrono::steady_clock::now() - start).count());
+    std::println("Generating points... done in {}s ({} points)",
+        std::chrono::duration_cast<std::chrono::duration<double>>(std::chrono::steady_clock::now() - start).count(),
+        points.size());
   }
   std::map<sqt, uint32_t> reverse_points;
-  using dist_map = etl::flat_map<uint32_t, uint64_t, 14>;
   std::vector<dist_map> distances;
   {
     std::println("Setup point structure... ({}B per distance)", sizeof(dist_map));
@@ -349,7 +387,204 @@ TEST_CASE("") {
         std::chrono::duration_cast<std::chrono::duration<double>>(std::chrono::steady_clock::now() - start).count(),
         maxnbr);
   }
+
+  std::println("Starting webserver on localhost:8080");
+
+  std::mt19937 generator(1748303721);
+  restinio::run(restinio::on_this_thread().port(8080).address("localhost").request_handler([&](auto req) {
+    if (req->header().path() != "/"sv)
+      return req->create_response(restinio::status_not_found()).connection_close().done();
+    const restinio::query_string_params_t qp = restinio::parse_query(req->header().query());
+    std::stringstream svg;
+    std::stringstream form;
+    std::stringstream measures;
+    auto proj = std::make_unique<mercator>();
+    // bool fisch = opt_value<int>(qp, "fisch").value_or(0);
+    /*bool fisch = qp.has("fisch");
+    std::println("Fisch {}", fisch);*/
+    /*form << std::format(R"(<tr><td><label for="mercator">Mercator</label><td><input type="radio" name="mercator" {}/>)",
+        proj->is_mercator() ? "checked"sv : ""sv);*/
+    std::uniform_int_distribution<size_t> distr(0, points.size() - 1);
+    auto start = *(points.begin() + distr(generator));
+    auto end = *(points.begin() + distr(generator));
+    {
+      auto start_lon = opt_value<double>(qp, "start_lon");
+      auto start_lat = opt_value<double>(qp, "start_lat");
+      if (start_lon && (start_lon.value() >= -180) && (start_lon.value() <= 180) && start_lat && (start_lat.value() >= -180) &&
+          (start_lat.value() <= 180))
+        start = *points.lower_bound(sqt({start_lon.value() / 180.0 * sqt_impl::PI, start_lat.value() / 180.0 * sqt_impl::PI}, 27));
+      form << "<tr><td><td>Warning: Snaps to nearest point";
+      form << std::format(
+          R"(<tr><td><label for="mercator">Start Longitude</label><td><input type="number" name="start_lon" value="{}" min="-180" max="180" step="any"/>E)",
+          degreefy(start.get_midpoint_latlond()).x);
+      form << std::format(
+          R"(<tr><td><label for="mercator">Start Latitude</label><td><input type="number" name="start_lat" value="{}" min="-90" max="90" step="any"/>N)",
+          degreefy(start.get_midpoint_latlond()).y);
+    }
+    {
+      auto end_lon = opt_value<double>(qp, "end_lon");
+      auto end_lat = opt_value<double>(qp, "end_lat");
+      if (end_lon && (end_lon.value() >= -180) && (end_lon.value() <= 180) && end_lat && (end_lat.value() >= -180) &&
+          (end_lat.value() <= 180))
+        end = *points.lower_bound(sqt({end_lon.value() / 180.0 * sqt_impl::PI, end_lat.value() / 180.0 * sqt_impl::PI}, 27));
+      form << std::format(
+          R"(<tr><td><label for="mercator">End Longitude</label><td><input type="number" name="end_lon" value="{}" min="-180" max="180" step="any"/>E)",
+          degreefy(end.get_midpoint_latlond()).x);
+      form << std::format(
+          R"(<tr><td><label for="mercator">End Latitude</label><td><input type="number" name="end_lat" value="{}" min="-90" max="90" step="any"/>N)",
+          degreefy(end.get_midpoint_latlond()).y);
+    }
+    {
+      auto coast_depth = opt_value<uint32_t>(qp, "coast_depth").value_or(7);
+      form << std::format(
+          R"(<tr><td><label for="coast_depth">Draw Coast Level (0 to disable)</label><td><input type="number" name="coast_depth" value="{}" min="0"/>)",
+          coast_depth);
+      if (coast_depth) {
+        svg << "<g>";
+        std::function<void(sqt)> do_coast = [&](sqt s) {
+          if (!proj->consider(s))
+            return;
+          if (s.count() < coast_depth) {
+            for (size_t i = 0; i < 4; i++)
+              do_coast(s.add_minor(i));
+          } else {
+            auto l = tree.first_leaf(s);
+            if ((!l) || (*l == tile::coast)) {
+              auto outpoints = s.get_points_dvec3();
+              if ((fabs(degreefy(conv(outpoints.at(0))).x - degreefy(conv(outpoints.at(1))).x) > 180) ||
+                  (fabs(degreefy(conv(outpoints.at(0))).x - degreefy(conv(outpoints.at(2))).x) > 180) ||
+                  (fabs(degreefy(conv(outpoints.at(1))).x - degreefy(conv(outpoints.at(2))).x) > 180))
+                return;
+              svg << "<path d=\"";
+              if (outpoints.size() > 0) {
+                auto p = proj->project(conv(outpoints.at(0)));
+                svg << "M" << p.x << " " << p.y << " ";
+              }
+              for (auto s : outpoints | std::views::drop(1)) {
+                auto p = proj->project(conv(s));
+                svg << "L" << p.x << " " << p.y << " ";
+              }
+              svg << R"(z" style="stroke: none; fill: black" />)";
+            }
+          }
+        };
+        for (size_t i = 0; i < 20; i++)
+          do_coast(sqt(i, {}));
+        svg << "</g>";
+      }
+    }
+    {
+      svg << "<g>";
+      bool render_graph = qp.has("render_graph");
+      form << std::format(
+          R"(<tr><td><label for="render_graph">Render Full Graph (will annihilate your browser)</label><td><input type="checkbox" name="render_graph" {}/>)",
+          render_graph ? "checked"sv : ""sv);
+      if (render_graph) {
+        for (const auto& [i, map] : distances | std::views::enumerate) {
+          auto self = *(points.begin() + i);
+          if (proj->consider(self))
+            for (auto& [oi, _] : map) {
+              auto other = *(points.begin() + oi);
+              if (fabs(degreefy(self.get_midpoint_latlond()).x - degreefy(other.get_midpoint_latlond()).x) > 180)
+                continue;
+              svg << "<path d=\"";
+              {
+                auto p = proj->project(self);
+                svg << "M" << p.x << " " << p.y << " ";
+              }
+              {
+                auto p = proj->project(other);
+                svg << "L" << p.x << " " << p.y << " ";
+              }
+              svg << R"(" style="stroke: blue; fill: none" />)";
+            }
+        }
+      }
+      svg << "</g>";
+    }
+    {
+      auto* frontier = new min_heap<idx_heap_impl<4000000>, fixed_distance_container<4000000>>();
+      frontier->push({reverse_points.at(start), 0});
+      std::vector<sqt> outpoints;
+      outpoints.reserve(4000);
+      auto start_time = std::chrono::steady_clock::now();
+      route(points, reverse_points, *frontier, distances, start, reverse_points.at(end), outpoints);
+      double t =
+          std::chrono::duration_cast<std::chrono::duration<double, std::milli>>(std::chrono::steady_clock::now() - start_time).count();
+      measures << std::format("<p>Single Route Time: {}ms</p>", t);
+      svg << "<path d=\"";
+      if (outpoints.size() > 0) {
+        auto p = proj->project(outpoints.at(0));
+        svg << "M" << p.x << " " << p.y << " ";
+      }
+      for (auto [s, prev] : std::views::zip(outpoints | std::views::drop(1), outpoints)) {
+        auto p = proj->project(s);
+        if (fabs(degreefy(s.get_midpoint_latlond()).x - degreefy(prev.get_midpoint_latlond()).x) > 180)
+          svg << "M" << p.x << " " << p.y << " ";
+        else
+          svg << "L" << p.x << " " << p.y << " ";
+      }
+      svg << R"(" style="stroke: red; fill: none" />)";
+    }
+    return req->create_response()
+        .set_body(std::format(R"+(<html>
+  <body style="display: flex; flex-direction: row;">
+    <svg viewBox="0 0 1000 500" style="height:100%; width: auto">
+      {}
+    </svg>
+    <form>
+      <table style="flex: auto;" border=1>
+        {}
+        <tr><td><td><button>Refresh</button>
+      </table>
+      {}
+)+",
+            svg.str(),
+            form.str(),
+            measures.str()))
+        .append_header(restinio::http_field::content_type, "text/html; charset=utf8")
+        .done();
+  }));
+
+  return res; // the result from doctest is propagated here as well
+}
+
 #if 1
+TEST_CASE("acc1") {
+  glm::dvec2 pt{3.15476763892379, -0.0015830220729089461};
+  auto v = sqt(pt, 24);
+  CHECK((sqt_impl::sqt_distance_latlond(pt, v.get_midpoint_latlond()) * 6000) < 20);
+}
+TEST_CASE("acc2") {
+  glm::dvec2 pt{3.15476763892379, -0.0015830220729089461};
+  auto v = sqt(glm::vec2(pt), 27);
+  CHECK((sqt_impl::sqt_distance_latlond(pt, conv(v.get_midpoint_dvec3())) * 6000) < 20);
+}
+TEST_CASE("acc3") {
+  glm::dvec2 pt{3.1242046036682742, -0.00610426997092528};
+  auto v = sqt(pt, 24);
+  std::println("FOUND {}", v);
+  CHECK((sqt_impl::sqt_distance_latlond(pt, v.get_midpoint_latlond()) * 6000) < 20);
+}
+#endif
+
+struct distance_pair_less {
+  bool operator()(std::pair<sqt, sqt> a, std::pair<sqt, sqt> b) const {
+    if (a.first < b.first)
+      return true;
+    if (a.first > b.first)
+      return false;
+    return a.second < b.second;
+  }
+};
+
+#if 0
+TEST_CASE("") {
+  std::ofstream file;
+  file.exceptions(std::ios::badbit | std::ios::failbit);
+  file.open("/home/christian/sqt/tree.obj", std::ios::trunc);
+
+#if 0
   {
     std::println("Finding simple routes...");
     auto start = std::chrono::steady_clock::now();
@@ -364,49 +599,19 @@ TEST_CASE("") {
         auto start = *(points.begin() + distr(generator));
         auto end = reverse_points.at(*(points.begin() + distr(generator)));
         // start = *points.lower_bound(sqt({5.924440699059232 / 180.0 * sqt_impl::PI, 40.65103747458522 / 180.0 * sqt_impl::PI}, 27));
-        // end = reverse_points.at(*points.lower_bound(sqt({0 / 180.0 * sqt_impl::PI, 0 / 180.0 * sqt_impl::PI}, 27)));
+        //  end = reverse_points.at(*points.lower_bound(sqt({0 / 180.0 * sqt_impl::PI, 0 / 180.0 * sqt_impl::PI}, 27)));
         // end = reverse_points.at(
-        //     *points.lower_bound(sqt({34.25509008417936 / 180.0 * sqt_impl::PI, 43.291032400186936 / 180.0 * sqt_impl::PI}, 27)));
+        //     *points.lower_bound(sqt({-114.0282066085717 / 180.0 * sqt_impl::PI, 30.946635398942334 / 180.0 * sqt_impl::PI}, 27)));
         if (start == *(points.begin() + end)) {
           throw std::runtime_error("No movement");
         }
-        // std::unordered_map<sqt, uint64_t> routes;
-        // routes[start] = 0;
-        // std::unordered_map<sqt, sqt> prevs;
-        using distpair = std::pair<uint64_t, sqt>;
         auto* frontier = new min_heap<idx_heap_impl<4000000>, fixed_distance_container<4000000>>();
         frontier->push({reverse_points.at(start), 0});
         auto startt2 = std::chrono::steady_clock::now();
-        route(*frontier, distances, end);
-        auto startt3 = std::chrono::steady_clock::now();
         std::vector<sqt> outpoints;
         outpoints.reserve(4000);
-        {
-          sqt cur = *(points.begin() + end);
-          while (cur != start) {
-            auto prev = [&] {
-              auto cur_idx = reverse_points.at(cur);
-              auto md = frontier->distance_for_element({cur_idx, -1ULL});
-              for (auto [nbr, len] : distances.at(cur_idx)) {
-                if ((frontier->distance_for_element({nbr, -1ULL}) + len) == md) {
-                  cur = *(points.begin() + nbr);
-                  return;
-                }
-              }
-              for (auto [nbr, len] : distances.at(cur_idx)) {
-                std::println("ERRORING {} + {} = {} != {}",
-                    frontier->distance_for_element({nbr, -1ULL}),
-                    len,
-                    frontier->distance_for_element({nbr, -1ULL}) + len,
-                    md);
-              }
-              throw std::runtime_error("No route");
-            };
-            prev();
-            outpoints.push_back(cur);
-          }
-          assert(cur == start);
-        }
+        route(*frontier, distances, end,outpoints);
+        auto startt3 = std::chrono::steady_clock::now();
         if (false) {
           nlohmann::json j = nlohmann::json::array();
           for (auto cur : outpoints)
