@@ -541,6 +541,7 @@ CONSTEXPR uint8_t direction_center = uint8_t(3);
       }                                                                                                                                    \
     }                                                                                                                                      \
     assert(false);                                                                                                                         \
+    return sqt_new();                                                                                                                      \
   }
 
   /*CONST_INLINE sqt_t sqt_from_point2_dvec3(dvec3 pos, uint granularity) {

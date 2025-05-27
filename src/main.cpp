@@ -4,6 +4,7 @@
 #define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
 #include "doctest/doctest.h"
 
+#include "min_heap.hpp"
 #include "osm.hpp"
 #include <etl/map.h>
 #include <flat_set>
@@ -11,6 +12,7 @@
 #include <glm/gtx/string_cast.hpp>
 #include <nlohmann/json.hpp>
 #include <print>
+#include <queue>
 #include <random>
 #include <ranges>
 #include <set>
@@ -145,6 +147,10 @@ inline auto find_points_in_zone(const auto& points, sqt a) {
 }
 
 inline nlohmann::json geojson(glm::dvec2 x) {
+  while (x.x < -M_PI)
+    x.x += M_PI * 2;
+  while (x.x > M_PI)
+    x.x -= M_PI * 2;
   return {x.x / M_PI * 180.0, (x.y / M_PI * 180.0)};
 }
 inline nlohmann::json geojson(sqt x) {
@@ -169,6 +175,17 @@ TEST_CASE("acc3") {
   CHECK((sqt_impl::sqt_distance_latlond(pt, v.get_midpoint_latlond()) * 6000) < 20);
 }
 #endif
+
+struct distance_pair_less {
+  bool operator()(std::pair<sqt, sqt> a, std::pair<sqt, sqt> b) const {
+    if (a.first < b.first)
+      return true;
+    if (a.first > b.first)
+      return false;
+    return a.second < b.second;
+  }
+};
+
 #if 1
 TEST_CASE("") {
   std::ofstream file;
@@ -185,9 +202,6 @@ TEST_CASE("") {
         std::chrono::duration_cast<std::chrono::duration<double>>(std::chrono::steady_clock::now() - start).count());
   }
   std::flat_set<sqt> points;
-  nlohmann::json points_list = nlohmann::json::array();
-  nlohmann::json points2_list = nlohmann::json::array();
-  nlohmann::json o;
   {
     std::println("Generating points...");
     auto start = std::chrono::steady_clock::now();
@@ -226,108 +240,137 @@ TEST_CASE("") {
     std::println("Generating points... done in {}s",
         std::chrono::duration_cast<std::chrono::duration<double>>(std::chrono::steady_clock::now() - start).count());
   }
+  std::map<std::pair<sqt, sqt>, uint64_t, distance_pair_less> distances;
   {
     std::println("Finding neighbors...");
     auto start = std::chrono::steady_clock::now();
 
-    nlohmann::json line_list = nlohmann::json::array();
-    /*
-    auto f = [&](sqt x) {
-      nlohmann::json w = nlohmann::json::array();
-      write_face(file, x);
-      for (auto p : x.get_points_dvec3())
-        w.push_back(geojson(conv(p)));
-      line_list.push_back(w);
-    };
-    f(sqt(0, {}));
-    f(sqt(0, {0}));
-    f(sqt(0, {0, 0}));
-    f(sqt(0, {0, 0, 0}));
-    f(sqt(0, {0, 0, 1}));
-    f(sqt(0, {0, 0, 2}));
-    f(sqt(0, {0, 0, 3}));*/
-
-    size_t min = -1;
-    size_t max = 0;
-#if 1
-    for (auto x : points)
-    // for (auto x : find_points_in_zone(points, sqt(glm::dvec2(-5.5 * M_PI / 180.0, 35.95 * M_PI / 180.0), 4)))
-    {
-      sqt pp = x;
-      sqt pn = x;
-      sqt np = x;
-      sqt nn = x;
-      auto pos = x.get_midpoint_latlond();
-      for (auto n : x.counted(7).get_self_and_neighbors())
-        for (auto o : find_points_in_zone(points, n)) {
-          auto ass = [&](auto& v) {
-            if ((x == v) || (x.distance_dvec3(o) < x.distance_dvec3(v)))
-              v = o;
-          };
-          if (x == o)
-            continue;
-          auto diff = pos - o.get_midpoint_latlond();
-          while (diff.x < -M_PI)
-            diff.x += M_PI * 2;
-          while (diff.x > M_PI)
-            diff.x -= M_PI * 2;
-          assert(fabs(diff.y) < M_PI);
-          if (diff.x > 0) {
-            if (diff.y > 0)
-              ass(pp);
-            else
-              ass(pn);
-          } else {
-            if (diff.y > 0)
-              ass(np);
-            else
-              ass(nn);
+    std::atomic<size_t> point_index = 0;
+    std::vector<std::jthread> threads;
+    std::mutex distmtx;
+    for (size_t i = 0; i < std::jthread::hardware_concurrency(); i++)
+      threads.emplace_back([&] {
+        std::map<std::pair<sqt, sqt>, uint64_t, distance_pair_less> mydist;
+        while (true) {
+          auto idx = point_index++;
+          if (idx >= points.size())
+            break;
+          auto x = *(points.begin() + idx);
+          sqt pp = x;
+          sqt pn = x;
+          sqt np = x;
+          sqt nn = x;
+          auto pos = x.get_midpoint_latlond();
+          for (auto n : x.counted(7).get_self_and_neighbors())
+            for (auto o : find_points_in_zone(points, n)) {
+              auto ass = [&](auto& v) {
+                if ((x == v) || (x.distance_dvec3(o) < x.distance_dvec3(v)))
+                  v = o;
+              };
+              if (x == o)
+                continue;
+              auto diff = pos - o.get_midpoint_latlond();
+              while (diff.x < -M_PI)
+                diff.x += M_PI * 2;
+              while (diff.x > M_PI)
+                diff.x -= M_PI * 2;
+              assert(fabs(diff.y) < M_PI);
+              if (diff.x > 0) {
+                if (diff.y > 0)
+                  ass(pp);
+                else
+                  ass(pn);
+              } else {
+                if (diff.y > 0)
+                  ass(np);
+                else
+                  ass(nn);
+              }
+            }
+          for (auto o : {pp, pn, np, nn}) {
+            uint64_t dist = x.distance_latlond(o) * 6371000000.0; // Earth diameter in mm
+            if ((x != o) && (dist < 30000000)) {                  // 30km in mm
+              assert(dist != 0);
+              mydist[{x, o}] = dist;
+              mydist[{o, x}] = dist;
+            }
           }
         }
-      for (auto o : {pp, pn, np, nn}) {
-        size_t dist = x.distance_latlond(o) * 6371000000.0; // Earth diameter in mm
-        if ((x != o) && (dist < 30000000)) {                // 30km in mm
-          assert(dist != 0);
-          // line_list.push_back({geojson(x), geojson(o)});
-          if (dist < min)
-            min = dist;
-          if (dist > max)
-            max = dist;
-        }
-      }
-    }
-#endif
-    std::println("DIST {} {}", min, max);
+        std::unique_lock lock(distmtx);
+        distances.merge(mydist);
+      });
+    for (auto& t : threads)
+      t.join();
 
+    std::println("DIST {}", distances.size());
     std::println("Finding neighbors... done in {}s",
         std::chrono::duration_cast<std::chrono::duration<double>>(std::chrono::steady_clock::now() - start).count());
-    o["type"] = "FeatureCollection";
-    nlohmann::json lf;
-    lf["type"] = "Feature";
-    lf["properties"]["name"] = "Lines";
-    lf["geometry"]["type"] = "MultiLineString";
-    lf["geometry"]["coordinates"] = line_list;
-    o["features"].push_back(lf);
-    {
-      nlohmann::json pf;
-      pf["type"] = "Feature";
-      pf["properties"]["name"] = "Original Points";
-      pf["properties"]["marker-color"] = "green";
-      pf["geometry"]["type"] = "MultiPoint";
-      pf["geometry"]["coordinates"] = points_list;
-      o["features"].push_back(pf);
+  }
+  {
+    std::println("Finding simple routes...");
+    auto start = std::chrono::steady_clock::now();
+
+    size_t count = 1;
+    std::mt19937 generator(1748303721);
+    for (size_t i = 0; i < count; i++) {
+      std::uniform_int_distribution<size_t> distr(0, points.size() - 1);
+      auto start = *(points.begin() + distr(generator));
+      auto end = *(points.begin() + distr(generator));
+      auto startt = std::chrono::steady_clock::now();
+      // start = *points.lower_bound(sqt({5.924440699059232 / 180.0 * sqt_impl::PI, 40.65103747458522 / 180.0 * sqt_impl::PI}, 27));
+      // end = *points.lower_bound(sqt({0 / 180.0 * sqt_impl::PI, 0 / 180.0 * sqt_impl::PI}, 27));
+      if (start == end) {
+        std::println("NOPE!");
+        continue;
+      }
+      std::unordered_map<sqt, uint64_t> routes;
+      routes[start] = 0;
+      std::unordered_map<sqt, sqt> prevs;
+      using distpair = std::pair<uint64_t, sqt>;
+      min_heap<sqt_heap_impl, map_distance_container<sqt>> frontier;
+      frontier.push({start, 0});
+      while (!frontier.empty()) {
+        auto [node, dist] = frontier.top();
+        frontier.pop();
+        if (node == end)
+          break;
+        auto it = routes.find(node);
+        assert(it != routes.end());
+        if (it->second < dist)
+          continue;
+        for (auto [addr, len] :
+            std::ranges::subrange(distances.upper_bound({node, sqt()}), distances.end()) |
+                std::views::take_while([&](const std::pair<std::pair<sqt, sqt>, uint64_t>& x) { return x.first.first == node; })) {
+          const auto& [_, nbr] = addr;
+          assert(it->second == dist);
+          size_t ndist = dist + len;
+          auto it = routes.find(nbr);
+          if ((it == routes.end()) || (it->second > ndist)) {
+            if (frontier.push({nbr, ndist})) {
+              routes[nbr] = ndist;
+              prevs[nbr] = node;
+            }
+          }
+        }
+      }
+      std::println("DJK {}s", std::chrono::duration_cast<std::chrono::duration<double>>(std::chrono::steady_clock::now() - startt).count());
+      // if (true)
+      //
+      {
+        nlohmann::json j = nlohmann::json::array();
+        sqt cur = end;
+        while (prevs.contains(cur)) {
+          j.push_back(geojson(cur));
+          assert(cur != prevs.at(cur));
+          cur = prevs.at(cur);
+        }
+        j.push_back(geojson(start));
+        std::println("{}", j.dump());
+      }
     }
-    /*{
-      nlohmann::json pf;
-      pf["type"] = "Feature";
-      pf["properties"]["name"] = "Generated Points";
-      pf["properties"]["marker-color"] = "red";
-      pf["properties"]["marker-size"] = "small";
-      pf["geometry"]["type"] = "MultiPoint";
-      pf["geometry"]["coordinates"] = points2_list;
-      o["features"].push_back(pf);
-    }*/
-    std::println("{}", o.dump());
+
+    double t = std::chrono::duration_cast<std::chrono::duration<double>>(std::chrono::steady_clock::now() - start).count();
+    std::println("Finding simple routes... done in {}s ({}s average)", t, t / count);
   }
   /*{
     std::println("Writing .obj...");

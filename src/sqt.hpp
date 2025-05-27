@@ -194,6 +194,15 @@ struct sqt {
   sqt_impl::sqt_t data_;
 };
 
+namespace std {
+  template <> struct hash<sqt> {
+    std::hash<uint64_t> hasher;
+    size_t operator()(sqt v) const {
+      return hasher(v.data_._data);
+    }
+  };
+} // namespace std
+
 template <> struct std::formatter<sqt> {
   constexpr auto parse(std::format_parse_context& ctx) {
     auto it = ctx.begin();
