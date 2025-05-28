@@ -1,0 +1,10 @@
+.xmake
+build
+.vscode
+.git
+*.pbf
+*.xml
+*.svg
+*.png
+*.pdf
+*.obj

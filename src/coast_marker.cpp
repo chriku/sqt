@@ -1,5 +1,4 @@
 #include "osm.hpp"
-#include <boost/iterator/function_output_iterator.hpp>
 #include <list>
 #include <print>
 #include <vector>

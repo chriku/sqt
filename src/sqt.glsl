@@ -13,7 +13,7 @@
 #define CONSTEXPR constexpr
 #define OUT(v, n) v& n
 #ifdef NDEBUG
-#define assertume(X) [[assertume(X)]]
+#define assertume(X) [[assume(X)]]
 #else
 #define assertume(X) assert(X)
 #endif
