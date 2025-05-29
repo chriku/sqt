@@ -192,15 +192,13 @@ template <bool frontier_mode> struct simple_dijkstra : router {
 
     auto resolve_route = [&] {
       auto cur_idx = end;
-      auto md = frontier->distance_for_element({cur_idx, -1ULL});
       while (cur_idx != start_idx) {
         auto prev = [&] {
+          auto md = frontier->distance_for_element({cur_idx, -1ULL});
           for (auto& [nbr, len] : distances.at(cur_idx)) {
-            uint64_t nbrd = frontier->distance_for_element({nbr, -1ULL});
-            if ((nbrd + len) == md) {
+            if ((frontier->distance_for_element({nbr, -1ULL}) + len) == md) {
               cur_idx = nbr;
               outdist += len;
-              md = nbrd;
               return;
             }
           }
