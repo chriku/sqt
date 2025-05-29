@@ -96,9 +96,9 @@ template <typename impl_type, typename distance_container_type, bool recurse = f
   impl_type impl_;
   distance_container_type distances_;
 };
-template <size_t count> struct inverted_fixed_distance_container {
+template <size_t count, typename dist_type> struct inverted_fixed_distance_container {
   inverted_fixed_distance_container() {}
-  inline bool if_distance_smaller_replace(size_t k, uint64_t dist) {
+  inline bool if_distance_smaller_replace(size_t k, dist_type dist) {
     assert(k < distances.size());
     auto& ref = distances[k];
     if (dist < (~ref)) {
@@ -107,26 +107,26 @@ template <size_t count> struct inverted_fixed_distance_container {
     }
     return false;
   }
-  inline uint64_t distance_for(size_t k) {
+  inline dist_type distance_for(size_t k) {
     assert(k < distances.size());
     return ~distances[k];
   }
-  static constexpr uint64_t max_distance() {
+  static constexpr dist_type max_distance() {
     return -1ULL;
   }
   inline void reset() {
     distances.fill(0);
   }
-  std::array<uint64_t, count> distances;
+  std::array<dist_type, count> distances;
 };
-template <size_t count> struct fixed_distance_container {
+template <size_t count, typename dist_type> struct fixed_distance_container {
   fixed_distance_container() {
     reset();
   }
   inline void reset() {
     distances.fill(-1ULL);
   }
-  inline bool if_distance_smaller_replace(size_t k, uint64_t dist) {
+  inline bool if_distance_smaller_replace(size_t k, dist_type dist) {
     assert(k < distances.size());
     auto& ref = distances[k];
     if (dist < ref) {
@@ -135,18 +135,18 @@ template <size_t count> struct fixed_distance_container {
     }
     return false;
   }
-  inline uint64_t distance_for(size_t k) {
+  inline dist_type distance_for(size_t k) {
     assert(k < distances.size());
     return distances[k];
   }
-  static constexpr uint64_t max_distance() {
+  static constexpr dist_type max_distance() {
     return -1ULL;
   }
-  std::array<uint64_t, count> distances;
+  std::array<dist_type, count> distances;
 };
-template <size_t count> struct idx_heap_impl {
+template <size_t count, typename dist_type> struct idx_heap_impl {
   using index_type = size_t;
-  using distance_type = uint64_t;
+  using distance_type = dist_type;
   using element_type = std::pair<uint32_t, distance_type>;
   inline distance_type distance(element_type e) {
     return e.second;

@@ -164,23 +164,24 @@ inline nlohmann::json geojson(sqt x) {
   return geojson(x.get_midpoint_latlond());
 }
 
-using dist_map = etl::flat_map<uint32_t, uint64_t, 14>;
+using dist_type = uint32_t;
+using dist_map = etl::flat_map<uint32_t, dist_type, 14>;
 
 struct router {
-  virtual void route(sqt start, uint32_t end, std::vector<sqt>& outpoints, uint64_t& outdist) = 0;
+  virtual void route(sqt start, uint32_t end, std::vector<sqt>& outpoints, dist_type& outdist) = 0;
 };
 template <bool frontier_mode> struct simple_dijkstra : router {
   std::flat_set<sqt>& points;
   std::map<sqt, uint32_t>& reverse_points;
   std::vector<dist_map>& distances;
-  using frontier_type = min_heap<idx_heap_impl<4000000>, fixed_distance_container<4000000>, frontier_mode>;
+  using frontier_type = min_heap<idx_heap_impl<4000000, dist_type>, fixed_distance_container<4000000, dist_type>>;
   std::unique_ptr<frontier_type> frontier;
   inline simple_dijkstra(std::flat_set<sqt>& points, std::map<sqt, uint32_t>& reverse_points, std::vector<dist_map>& distances)
       : points(points), reverse_points(reverse_points), distances(distances) {
     frontier = std::make_unique<frontier_type>();
   }
   std::chrono::steady_clock::duration rtd = {};
-  void route(sqt start, uint32_t end, std::vector<sqt>& outpoints, uint64_t& outdist) override {
+  void route(sqt start, uint32_t end, std::vector<sqt>& outpoints, dist_type& outdist) override {
     if (start == *(points.begin() + end)) {
       throw std::runtime_error("No movement");
     }
@@ -413,8 +414,8 @@ int main(int argc, char** argv) {
               }
             }
           for (auto o : {pp, pn, np, nn}) {
-            uint64_t dist = x.distance_latlond(o) * 6371000000.0; // Earth diameter in mm
-            if ((x != o) && (dist < 30000000)) {                  // 30km in mm
+            dist_type dist = x.distance_latlond(o) * (6371000000.0 / 25); // Earth diameter in mm
+            if ((x != o) && (dist < (30000000 / 25))) {                   // 30km in mm
               assert(dist != 0);
               {
                 std::unique_lock lock(distmtx.at(reverse_points.at(x) % distmtx.size()));
@@ -461,7 +462,7 @@ int main(int argc, char** argv) {
         std::uniform_int_distribution<size_t> distr(0, points.size() - 1);
         auto start = *(points.begin() + distr(generator));
         auto end = reverse_points.at(*(points.begin() + distr(generator)));
-        uint64_t outdist;
+        dist_type outdist;
         auto startt2 = std::chrono::steady_clock::now();
         djk.route(start, end, outpoints, outdist);
 
@@ -632,7 +633,7 @@ int main(int argc, char** argv) {
       outpoints.reserve(8000);
       auto start_time = std::chrono::steady_clock::now();
       simple_dijkstra<true> djk(points, reverse_points, distances);
-      uint64_t outdist = 0;
+      dist_type outdist = 0;
       djk.route(start, reverse_points.at(end), outpoints, outdist);
       double t =
           std::chrono::duration_cast<std::chrono::duration<double, std::milli>>(std::chrono::steady_clock::now() - start_time).count();
@@ -662,7 +663,7 @@ int main(int argc, char** argv) {
           benchmark ? "checked"sv : ""sv);
       if (benchmark) {
         std::uniform_int_distribution<size_t> distr(0, points.size() - 1);
-        uint64_t outdist;
+        dist_type outdist;
         std::vector<sqt> outpoints;
         outpoints.reserve(8000);
         simple_dijkstra<true> djk(points, reverse_points, distances);
