@@ -13,9 +13,9 @@ do
   -- add_packages("glslang")
   set_languages("c++latest")
   add_defines("GLM_ENABLE_EXPERIMENTAL")
-  add_defines("ETL_THROW_EXCEPTIONS", "ETL_VERBOSE_ERRORS")
+  add_defines("ETL_VERBOSE_ERRORS")
   if is_mode("debug") then
-    add_defines("ETL_CHECK_PUSH_POP")
+    add_defines("ETL_THROW_EXCEPTIONS", "ETL_CHECK_PUSH_POP")
   end
   add_packages("protobuf-cpp", {public = true})
   add_rules("protobuf.cpp")
