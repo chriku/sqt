@@ -167,44 +167,40 @@ inline nlohmann::json geojson(sqt x) {
 using dist_map = etl::flat_map<uint32_t, uint64_t, 14>;
 
 struct router {
-  virtual void route(sqt start, uint32_t end, std::vector<sqt>& outpoints, uint64_t& outdist) = 0;
+  virtual void route(sqt start, uint32_t end, etl::ivector<sqt>& outpoints, uint64_t& outdist) = 0;
 };
-struct simple_dijkstra : router {
+template <bool frontier_mode> struct simple_dijkstra : router {
   std::flat_set<sqt>& points;
   std::map<sqt, uint32_t>& reverse_points;
   std::vector<dist_map>& distances;
-  using frontier_type = min_heap<idx_heap_impl<4000000>, fixed_distance_container<4000000>>;
+  using frontier_type = min_heap<idx_heap_impl<4000000>, fixed_distance_container<4000000>, frontier_mode>;
+  std::unique_ptr<frontier_type> frontier;
   inline simple_dijkstra(std::flat_set<sqt>& points, std::map<sqt, uint32_t>& reverse_points, std::vector<dist_map>& distances)
-      : points(points), reverse_points(reverse_points), distances(distances) {}
-  void route(sqt start, uint32_t end, std::vector<sqt>& outpoints, uint64_t& outdist) override {
+      : points(points), reverse_points(reverse_points), distances(distances) {
+    frontier = std::make_unique<frontier_type>();
+  }
+  std::chrono::steady_clock::duration rtd = {};
+  void route(sqt start, uint32_t end, etl::ivector<sqt>& outpoints, uint64_t& outdist) override {
     if (start == *(points.begin() + end)) {
       throw std::runtime_error("No movement");
     }
-    auto frontier = std::make_unique<frontier_type>();
+    frontier->reset();
     auto start_idx = reverse_points.at(start);
     frontier->push({start_idx, 0});
-    while (frontier->impl_.size() >= 1) {
-      assert(!frontier->empty());
-      assert(frontier->impl_.size() >= 1);
-      auto [node, dist] = frontier->top();
-      frontier->pop();
-      if (node == end)
-        break;
-      assert(node < distances.size());
-      for (auto& [nbr, len] : distances[node]) {
-        size_t ndist = dist + len;
-        frontier->push({nbr, ndist});
-      }
-    }
-    {
+
+    auto startt2 = std::chrono::steady_clock::now();
+
+    auto resolve_route = [&] {
       auto cur_idx = end;
+      auto md = frontier->distance_for_element({cur_idx, -1ULL});
       while (cur_idx != start_idx) {
         auto prev = [&] {
-          auto md = frontier->distance_for_element({cur_idx, -1ULL});
           for (auto& [nbr, len] : distances.at(cur_idx)) {
-            if ((frontier->distance_for_element({nbr, -1ULL}) + len) == md) {
+            uint64_t nbrd = frontier->distance_for_element({nbr, -1ULL});
+            if ((nbrd + len) == md) {
               cur_idx = nbr;
               outdist += len;
+              md = nbrd;
               return;
             }
           }
@@ -215,15 +211,32 @@ struct simple_dijkstra : router {
                 frontier->distance_for_element({nbr, -1ULL}) + len,
                 md);
           }
-          throw std::runtime_error("No route");
+          throw std::runtime_error("IMPL error");
         };
         prev();
         outpoints.push_back(*(points.begin() + cur_idx));
       }
       if (cur_idx != start_idx)
         throw std::runtime_error("IRE");
+    };
+
+    while (!frontier->empty()) {
+      assert(!frontier->empty());
+      assert(frontier->impl_.size() >= 1);
+      auto [node, dist] = frontier->top();
+      frontier->pop();
+      if (node == end) {
+        rtd += (std::chrono::steady_clock::now() - startt2);
+        return resolve_route();
+        break;
+      }
+      assert(node < distances.size());
+      for (auto& [nbr, len] : distances[node]) {
+        size_t ndist = dist + len;
+        frontier->push({nbr, ndist});
+      }
     }
-    frontier.release(); // Leak memory, because why care?
+    throw std::runtime_error("No route");
   }
 };
 
@@ -433,12 +446,15 @@ int main(int argc, char** argv) {
         std::chrono::duration_cast<std::chrono::duration<double>>(std::chrono::steady_clock::now() - start).count(),
         maxnbr);
   }
-  {
-    std::println("Finding simple routes...");
+  auto run = [&]<typename T>(T) {
+    std::println("Finding simple routes... {}", T::value);
     auto start = std::chrono::steady_clock::now();
 
-    size_t count = 10;
+    constexpr size_t count = 1000;
     size_t errors = 0;
+    simple_dijkstra<T::value> djk(points, reverse_points, distances);
+    std::chrono::steady_clock::duration rtd = {};
+    auto& outpoints = *new etl::vector<sqt, 4000 * count>;
     for (size_t i = 0; i < count; i++)
       try {
         auto startt = std::chrono::steady_clock::now();
@@ -446,25 +462,32 @@ int main(int argc, char** argv) {
         std::uniform_int_distribution<size_t> distr(0, points.size() - 1);
         auto start = *(points.begin() + distr(generator));
         auto end = reverse_points.at(*(points.begin() + distr(generator)));
-        std::vector<sqt> outpoints;
-        outpoints.reserve(4000);
         uint64_t outdist;
         auto startt2 = std::chrono::steady_clock::now();
-        simple_dijkstra djk(points, reverse_points, distances);
         djk.route(start, end, outpoints, outdist);
 
-        std::println("DJK (Seed {}), resulted in {} points {}s (setup {}s)",
-            i,
-            outpoints.size(),
-            std::chrono::duration_cast<std::chrono::duration<double>>(std::chrono::steady_clock::now() - startt).count(),
-            std::chrono::duration_cast<std::chrono::duration<double>>(startt2 - startt).count());
+        rtd += (std::chrono::steady_clock::now() - startt2);
       } catch (const std::exception& e) {
         std::println("Error whle finding route: {}", e.what());
         errors++;
       }
 
     double t = std::chrono::duration_cast<std::chrono::duration<double>>(std::chrono::steady_clock::now() - start).count();
-    std::println("Finding simple routes... done in {}s ({}s average), {} errors", t, t / count, errors);
+    double t2 = std::chrono::duration_cast<std::chrono::duration<double>>(rtd).count();
+    double t3 = std::chrono::duration_cast<std::chrono::duration<double>>(djk.rtd).count();
+    std::println("Finding simple routes... done in {}s ({}s average), calc {}s ({}s average), loop {}s ({}s average), {} errors, {} points",
+        t,
+        t / count,
+        t2,
+        t2 / count,
+        t3,
+        t3 / count,
+        errors,
+        outpoints.size());
+  };
+  for (size_t i = 0; i < 5; i++) {
+    run(std::false_type{});
+    run(std::true_type{});
   }
 
   std::println("Starting webserver on 127.0.0.1:8080 after {}s",
@@ -607,10 +630,9 @@ int main(int argc, char** argv) {
       svg << "</g>";
     }
     {
-      std::vector<sqt> outpoints;
-      outpoints.reserve(4000);
+      etl::vector<sqt, 8000> outpoints;
       auto start_time = std::chrono::steady_clock::now();
-      simple_dijkstra djk(points, reverse_points, distances);
+      simple_dijkstra<true> djk(points, reverse_points, distances);
       uint64_t outdist = 0;
       djk.route(start, reverse_points.at(end), outpoints, outdist);
       double t =
@@ -642,9 +664,8 @@ int main(int argc, char** argv) {
       if (benchmark) {
         std::uniform_int_distribution<size_t> distr(0, points.size() - 1);
         uint64_t outdist;
-        std::vector<sqt> outpoints;
-        outpoints.reserve(4000 * count);
-        simple_dijkstra djk(points, reverse_points, distances);
+        etl::vector<sqt, 8000> outpoints;
+        simple_dijkstra<true> djk(points, reverse_points, distances);
         auto start_time = std::chrono::steady_clock::now();
         for (size_t i = 0; i < count; i++) {
           auto start = *(points.begin() + distr(generator));

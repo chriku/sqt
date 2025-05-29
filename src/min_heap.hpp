@@ -1,17 +1,22 @@
 #ifndef MIN_HEAP_HPP
 #define MIN_HEAP_HPP
 
-#include "sqt.hpp"
 #include <etl/vector.h>
 #include <flat_set>
 #include <map>
 #include <vector>
 
-template <typename impl_type, typename distance_container_type> struct min_heap {
+template <typename impl_type, typename distance_container_type, bool recurse = false> struct min_heap {
   using element_type = impl_type::element_type;
   using index_type = impl_type::index_type;
   using distance_type = impl_type::distance_type;
-  template <typename... Args> inline min_heap(Args&&... args) : impl_(std::forward<Args>(args)...) {}
+  template <typename... Args> inline min_heap(Args&&... args) : impl_(std::forward<Args>(args)...) {
+    reset();
+  }
+  inline void reset() {
+    distances_.reset();
+    impl_.reset();
+  }
   inline element_type top() {
     assert(impl_.size() >= 1ULL);
     return impl_.front(distance_for_index(0));
@@ -25,8 +30,7 @@ template <typename impl_type, typename distance_container_type> struct min_heap 
       impl_.swap(0, impl_.size() - 1);
     assert(impl_.size() >= 1);
     impl_.pop_back();
-    if (impl_.size() > 1)
-      shift_down(0);
+    shift_down(0);
   }
   inline bool push(const element_type& element) {
     distance_type new_distance = impl_.distance(element);
@@ -92,32 +96,6 @@ template <typename impl_type, typename distance_container_type> struct min_heap 
   impl_type impl_;
   distance_container_type distances_;
 };
-template <typename Key> struct map_distance_container {
-  inline bool if_distance_smaller_replace(const Key& k, uint64_t dist) {
-    auto [it, inserted] = distances.emplace(k, dist);
-    if (inserted)
-      return true;
-    else if (dist < it->second) {
-      it->second = dist;
-      return true;
-    } else
-      return false;
-  }
-  inline uint64_t distance_for(const Key& k) {
-    return distances.at(k);
-  }
-  inline uint64_t distance_for2(const Key& k) {
-    auto it = distances.find(k);
-    if (it != distances.end())
-      return it->second;
-    else
-      return max_distance();
-  }
-  static constexpr uint64_t max_distance() {
-    return -1ULL;
-  }
-  std::map<Key, uint64_t> distances;
-};
 template <size_t count> struct inverted_fixed_distance_container {
   inverted_fixed_distance_container() {}
   inline bool if_distance_smaller_replace(size_t k, uint64_t dist) {
@@ -136,10 +114,16 @@ template <size_t count> struct inverted_fixed_distance_container {
   static constexpr uint64_t max_distance() {
     return -1ULL;
   }
+  inline void reset() {
+    distances.fill(0);
+  }
   std::array<uint64_t, count> distances;
 };
 template <size_t count> struct fixed_distance_container {
   fixed_distance_container() {
+    reset();
+  }
+  inline void reset() {
     distances.fill(-1ULL);
   }
   inline bool if_distance_smaller_replace(size_t k, uint64_t dist) {
@@ -160,64 +144,7 @@ template <size_t count> struct fixed_distance_container {
   }
   std::array<uint64_t, count> distances;
 };
-struct sqt_pair_heap_impl {
-  using index_type = size_t;
-  using distance_type = uint64_t;
-  using element_type = std::pair<sqt, distance_type>;
-  inline distance_type distance(element_type e) {
-    return e.second;
-  }
-  inline sqt name(element_type e) {
-    return e.first;
-  }
-};
-struct sqt_heap_impl : sqt_pair_heap_impl {
-  std::vector<std::pair<sqt, size_t*>> elements;
-  std::map<sqt, size_t> reverse;
-  inline element_type front(distance_type d) {
-    assert(elements.size());
-    return {elements.front().first, d};
-  }
-  inline void swap(index_type a, index_type b) {
-    assert(*elements.at(a).second == a);
-    assert(*elements.at(b).second == b);
-    assert(a < elements.size());
-    assert(b < elements.size());
-    std::swap(elements[a], elements[b]);
-    std::swap(*elements.at(a).second, *elements.at(b).second);
-    assert(*elements.at(a).second == a);
-    assert(*elements.at(b).second == b);
-  }
-  inline void pop_back() {
-    assert(elements.size());
-    *elements.back().second = max_index();
-    elements.pop_back();
-  }
-  inline void push_back(element_type e) {
-    auto [it, inserted] = reverse.emplace(e.first, max_index());
-    assert(it->second == max_index());
-    it->second = elements.size();
-    elements.push_back({e.first, std::addressof(it->second)});
-  }
-  inline sqt name_at(index_type i) {
-    return name({elements.at(i).first, max_index()});
-  }
-  inline index_type find_index(element_type e) {
-    auto it = reverse.find(e.first);
-    if (it == reverse.end()) {
-      return max_index();
-    } else {
-      return it->second;
-    }
-  }
-  inline index_type size() const {
-    return elements.size();
-  }
-  static constexpr uint64_t max_index() {
-    return -1ULL;
-  }
-};
-template <size_t count> struct idx_heap_impl : sqt_pair_heap_impl {
+template <size_t count> struct idx_heap_impl {
   using index_type = size_t;
   using distance_type = uint64_t;
   using element_type = std::pair<uint32_t, distance_type>;
@@ -233,8 +160,11 @@ template <size_t count> struct idx_heap_impl : sqt_pair_heap_impl {
   etl::vector<uint32_t, count> elements;
   std::array<uint32_t, count> reverse;
   idx_heap_impl() {
-    reverse.fill(max_index());
     // elements.reserve(count);
+  }
+  inline void reset() {
+    reverse.fill(max_index());
+    elements.clear();
   }
   inline element_type front(distance_type d) {
     assert(elements.size());
@@ -248,8 +178,8 @@ template <size_t count> struct idx_heap_impl : sqt_pair_heap_impl {
     assert(reverse.at(elements.at(b)) == b);
     assert(a < elements.size());
     assert(b < elements.size());
-    std::swap(elements[a], elements[b]);
     std::swap(reverse[elements[a]], reverse[elements[b]]);
+    std::swap(elements[a], elements[b]);
     assert(reverse.at(elements.at(a)) == a);
     assert(reverse.at(elements.at(b)) == b);
   }
