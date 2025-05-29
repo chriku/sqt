@@ -26,7 +26,7 @@ template <typename impl_type, typename distance_container_type, bool recurse = f
   }
   inline void pop() {
     assert(impl_.size() >= 1);
-    if (impl_.size() >= 2)
+    if (impl_.size() >= 2) [[likely]]
       impl_.swap(0, impl_.size() - 1);
     assert(impl_.size() >= 1);
     impl_.pop_back();
@@ -34,9 +34,9 @@ template <typename impl_type, typename distance_container_type, bool recurse = f
   }
   inline bool push(const element_type& element) {
     distance_type new_distance = impl_.distance(element);
-    if (distances_.if_distance_smaller_replace(impl_.name(element), new_distance)) {
+    if (distances_.if_distance_smaller_replace(impl_.name(element), new_distance)) [[unlikely]] {
       index_type index = impl_.find_index(element);
-      if (index < impl_.size()) {
+      if (index < impl_.size()) [[likely]] {
         shift_up(index, new_distance);
       } else {
         assert(index == impl_.max_index());
@@ -57,12 +57,12 @@ template <typename impl_type, typename distance_container_type, bool recurse = f
     while (true) {
       index_type left = current * 2 + 1;
       index_type right = current * 2 + 2;
-      if (left >= impl_.size()) {
+      if (left >= impl_.size()) [[unlikely]] {
         break;
       }
       distance_type left_dist = distance_for_index(left);
       distance_type right_dist = distances_.max_distance();
-      if (right < impl_.size()) {
+      if (right < impl_.size()) [[likely]] {
         right_dist = distance_for_index(right);
       }
       if (left_dist < right_dist) {

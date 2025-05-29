@@ -223,7 +223,7 @@ template <bool frontier_mode> struct simple_dijkstra : router {
       assert(frontier->impl_.size() >= 1);
       auto [node, dist] = frontier->top();
       frontier->pop();
-      if (node == end) {
+      if (node == end) [[unlikely]] {
         rtd += (std::chrono::steady_clock::now() - startt2);
         return resolve_route();
         break;
