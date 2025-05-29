@@ -124,7 +124,7 @@ template <size_t count, typename dist_type> struct fixed_distance_container {
     reset();
   }
   inline void reset() {
-    distances.fill(-1ULL);
+    distances.fill(max_distance());
   }
   inline bool if_distance_smaller_replace(size_t k, dist_type dist) {
     assert(k < distances.size());
@@ -145,7 +145,7 @@ template <size_t count, typename dist_type> struct fixed_distance_container {
   std::array<dist_type, count> distances;
 };
 template <size_t count, typename dist_type> struct idx_heap_impl {
-  using index_type = size_t;
+  using index_type = uint32_t;
   using distance_type = dist_type;
   using element_type = std::pair<uint32_t, distance_type>;
   inline distance_type distance(element_type e) {
