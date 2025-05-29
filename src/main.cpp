@@ -170,15 +170,26 @@ using dist_map = etl::flat_map<uint32_t, dist_type, 14>;
 struct router {
   virtual void route(sqt start, uint32_t end, std::vector<sqt>& outpoints, dist_type& outdist) = 0;
 };
-template <bool frontier_mode> struct simple_dijkstra : router {
+template <bool distance_mode> struct simple_dijkstra : router {
   std::flat_set<sqt>& points;
   std::map<sqt, uint32_t>& reverse_points;
   std::vector<dist_map>& distances;
+  std::vector<uint32_t> neighbors;
+  std::vector<uint32_t> neighbor_indicess;
+  std::vector<uint32_t> neighbor_lengths;
   using frontier_type = min_heap<idx_heap_impl<4000000, dist_type>, fixed_distance_container<4000000, dist_type>>;
   std::unique_ptr<frontier_type> frontier;
   inline simple_dijkstra(std::flat_set<sqt>& points, std::map<sqt, uint32_t>& reverse_points, std::vector<dist_map>& distances)
       : points(points), reverse_points(reverse_points), distances(distances) {
     frontier = std::make_unique<frontier_type>();
+    for (auto& dist : distances) {
+      neighbors.push_back(neighbor_indicess.size());
+      for (auto& [nbr, len] : dist) {
+        neighbor_indicess.push_back(nbr);
+        neighbor_lengths.push_back(len);
+      }
+    }
+    neighbors.push_back(neighbor_indicess.size());
   }
   std::chrono::steady_clock::duration rtd = {};
   void route(sqt start, uint32_t end, std::vector<sqt>& outpoints, dist_type& outdist) override {
@@ -229,10 +240,20 @@ template <bool frontier_mode> struct simple_dijkstra : router {
         return resolve_route();
         break;
       }
-      assert(node < distances.size());
-      for (auto& [nbr, len] : distances[node]) {
-        size_t ndist = dist + len;
-        frontier->push({nbr, ndist});
+      if constexpr (distance_mode) {
+        assert(node < neighbors.size());
+        for (size_t i = neighbors[node]; i < neighbors[node + 1]; i++) {
+          assert(i < neighbor_lengths.size());
+          assert(i < neighbor_indicess.size());
+          size_t ndist = neighbor_lengths[i] + dist;
+          frontier->push({neighbor_indicess[i], ndist});
+        }
+      } else {
+        assert(node < distances.size());
+        for (auto& [nbr, len] : distances[node]) {
+          size_t ndist = dist + len;
+          frontier->push({nbr, ndist});
+        }
       }
     }
     throw std::runtime_error("No route");
@@ -455,11 +476,11 @@ int main(int argc, char** argv) {
     std::chrono::steady_clock::duration rtd = {};
     std::vector<sqt> outpoints;
     outpoints.reserve(4000 * count);
+    std::mt19937 generator(1748303721);
+    std::uniform_int_distribution<size_t> distr(0, points.size() - 1);
     for (size_t i = 0; i < count; i++)
       try {
         auto startt = std::chrono::steady_clock::now();
-        std::mt19937 generator(1748303721 + i);
-        std::uniform_int_distribution<size_t> distr(0, points.size() - 1);
         auto start = *(points.begin() + distr(generator));
         auto end = reverse_points.at(*(points.begin() + distr(generator)));
         dist_type outdist;
@@ -487,6 +508,7 @@ int main(int argc, char** argv) {
   };
   for (size_t i = 0; i < 1; i++) {
     run(std::false_type{});
+    run(std::true_type{});
   }
 
   std::println("Starting webserver on 127.0.0.1:8080 after {}s",

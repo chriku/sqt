@@ -32,7 +32,7 @@ template <typename impl_type, typename distance_container_type, bool recurse = f
     impl_.pop_back();
     shift_down(0);
   }
-  inline bool push(const element_type& element) {
+  inline bool push(element_type element) {
     distance_type new_distance = impl_.distance(element);
     if (distances_.if_distance_smaller_replace(impl_.name(element), new_distance)) [[unlikely]] {
       index_type index = impl_.find_index(element);
