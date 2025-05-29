@@ -175,24 +175,24 @@ template <bool distance_mode> struct simple_dijkstra : router {
   std::map<sqt, uint32_t>& reverse_points;
   std::vector<dist_map>& distances;
   std::vector<uint32_t> neighbors;
-  std::vector<uint32_t> neighbor_indicess;
-  std::vector<uint32_t> neighbor_lengths;
+  std::vector<std::pair<uint32_t, dist_type>> neighbor_data;
   using frontier_type = min_heap<idx_heap_impl<4000000, dist_type>, fixed_distance_container<4000000, dist_type>>;
   std::unique_ptr<frontier_type> frontier;
   inline simple_dijkstra(std::flat_set<sqt>& points, std::map<sqt, uint32_t>& reverse_points, std::vector<dist_map>& distances)
       : points(points), reverse_points(reverse_points), distances(distances) {
     frontier = std::make_unique<frontier_type>();
+    neighbors.reserve(distances.size() + 1);
+    neighbor_data.reserve(distances.size() * 14);
     for (auto& dist : distances) {
-      neighbors.push_back(neighbor_indicess.size());
+      neighbors.push_back(neighbor_data.size());
       for (auto& [nbr, len] : dist) {
-        neighbor_indicess.push_back(nbr);
-        neighbor_lengths.push_back(len);
+        neighbor_data.emplace_back(nbr, len);
       }
     }
-    neighbors.push_back(neighbor_indicess.size());
+    neighbors.push_back(neighbor_data.size());
   }
   std::chrono::steady_clock::duration rtd = {};
-  void route(sqt start, uint32_t end, std::vector<sqt>& outpoints, dist_type& outdist) override {
+  [[gnu::flatten]] void route(sqt start, uint32_t end, std::vector<sqt>& outpoints, dist_type& outdist) override {
     if (start == *(points.begin() + end)) {
       throw std::runtime_error("No movement");
     }
@@ -240,20 +240,12 @@ template <bool distance_mode> struct simple_dijkstra : router {
         return resolve_route();
         break;
       }
-      if constexpr (distance_mode) {
-        assert(node < neighbors.size());
-        for (size_t i = neighbors[node]; i < neighbors[node + 1]; i++) {
-          assert(i < neighbor_lengths.size());
-          assert(i < neighbor_indicess.size());
-          size_t ndist = neighbor_lengths[i] + dist;
-          frontier->push({neighbor_indicess[i], ndist});
-        }
-      } else {
-        assert(node < distances.size());
-        for (auto& [nbr, len] : distances[node]) {
-          size_t ndist = dist + len;
-          frontier->push({nbr, ndist});
-        }
+      assert(node < neighbors.size());
+      for (size_t i = neighbors[node]; i < neighbors[node + 1]; i++) {
+        assert(i < neighbor_data.size());
+        const auto& [idx, len] = neighbor_data[i];
+        size_t ndist = len + dist;
+        frontier->push({idx, ndist});
       }
     }
     throw std::runtime_error("No route");
@@ -507,7 +499,7 @@ int main(int argc, char** argv) {
         outpoints.size());
   };
   for (size_t i = 0; i < 1; i++) {
-    run(std::false_type{});
+    // run(std::false_type{});
     run(std::true_type{});
   }
 

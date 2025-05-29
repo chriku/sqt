@@ -54,26 +54,28 @@ template <typename impl_type, typename distance_container_type, bool recurse = f
     return distances_.distance_for(impl_.name(element));
   }
   inline void shift_down(index_type current) {
+    size_t impl_size = impl_.size();
     while (true) {
       index_type left = current * 2 + 1;
       index_type right = current * 2 + 2;
-      if (left >= impl_.size()) [[unlikely]] {
+      if (left >= impl_size) [[unlikely]] {
         break;
       }
       distance_type left_dist = distance_for_index(left);
       distance_type right_dist = distances_.max_distance();
-      if (right < impl_.size()) [[likely]] {
+      if (right < impl_size) [[likely]] {
         right_dist = distance_for_index(right);
       }
+      distance_type current_dist = distance_for_index(current);
       if (left_dist < right_dist) {
-        if (left_dist < distance_for_index(current)) {
+        if (left_dist < current_dist) {
           impl_.swap(current, left);
           current = left;
         } else {
           break;
         }
       } else {
-        if (right_dist < distance_for_index(current)) {
+        if (right_dist < current_dist) {
           impl_.swap(current, right);
           current = right;
         } else {
@@ -197,7 +199,7 @@ template <size_t count, typename dist_type> struct idx_heap_impl {
   }
   inline size_t name_at(index_type i) {
     assert(i < elements.size());
-    return name({elements[i], max_index()});
+    return elements[i];
   }
   inline index_type find_index(element_type e) {
     assert(e.first < reverse.size());
