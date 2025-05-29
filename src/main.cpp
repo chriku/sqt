@@ -179,6 +179,7 @@ template <bool frontier_mode> struct simple_dijkstra : router {
       : points(points), reverse_points(reverse_points), distances(distances) {
     frontier = std::make_unique<frontier_type>();
   }
+  std::chrono::steady_clock::duration rtd = {};
   void route(sqt start, uint32_t end, std::vector<sqt>& outpoints, uint64_t& outdist) override {
     if (start == *(points.begin() + end)) {
       throw std::runtime_error("No movement");
@@ -187,15 +188,19 @@ template <bool frontier_mode> struct simple_dijkstra : router {
     auto start_idx = reverse_points.at(start);
     frontier->push({start_idx, 0});
 
+    auto startt2 = std::chrono::steady_clock::now();
+
     auto resolve_route = [&] {
       auto cur_idx = end;
+      auto md = frontier->distance_for_element({cur_idx, -1ULL});
       while (cur_idx != start_idx) {
         auto prev = [&] {
-          auto md = frontier->distance_for_element({cur_idx, -1ULL});
           for (auto& [nbr, len] : distances.at(cur_idx)) {
-            if ((frontier->distance_for_element({nbr, -1ULL}) + len) == md) {
+            uint64_t nbrd = frontier->distance_for_element({nbr, -1ULL});
+            if ((nbrd + len) == md) {
               cur_idx = nbr;
               outdist += len;
+              md = nbrd;
               return;
             }
           }
@@ -221,6 +226,7 @@ template <bool frontier_mode> struct simple_dijkstra : router {
       auto [node, dist] = frontier->top();
       frontier->pop();
       if (node == end) {
+        rtd += (std::chrono::steady_clock::now() - startt2);
         return resolve_route();
         break;
       }
@@ -444,7 +450,7 @@ int main(int argc, char** argv) {
     std::println("Finding simple routes... {}", T::value);
     auto start = std::chrono::steady_clock::now();
 
-    size_t count = 1000;
+    constexpr size_t count = 1000;
     size_t errors = 0;
     simple_dijkstra<T::value> djk(points, reverse_points, distances);
     std::chrono::steady_clock::duration rtd = {};
@@ -469,17 +475,19 @@ int main(int argc, char** argv) {
 
     double t = std::chrono::duration_cast<std::chrono::duration<double>>(std::chrono::steady_clock::now() - start).count();
     double t2 = std::chrono::duration_cast<std::chrono::duration<double>>(rtd).count();
-    std::println("Finding simple routes... done in {}s ({}s average), calc {}s ({}s average), {} errors, {} points",
+    double t3 = std::chrono::duration_cast<std::chrono::duration<double>>(djk.rtd).count();
+    std::println("Finding simple routes... done in {}s ({}s average), calc {}s ({}s average), loop {}s ({}s average), {} errors, {} points",
         t,
         t / count,
         t2,
         t2 / count,
+        t3,
+        t3 / count,
         errors,
         outpoints.size());
   };
-  for (size_t i = 0; i < 5; i++) {
+  for (size_t i = 0; i < 1; i++) {
     run(std::false_type{});
-    run(std::true_type{});
   }
 
   std::println("Starting webserver on 127.0.0.1:8080 after {}s",
@@ -623,7 +631,7 @@ int main(int argc, char** argv) {
     }
     {
       std::vector<sqt> outpoints;
-      outpoints.reserve(4000);
+      outpoints.reserve(8000);
       auto start_time = std::chrono::steady_clock::now();
       simple_dijkstra<true> djk(points, reverse_points, distances);
       uint64_t outdist = 0;
@@ -658,7 +666,7 @@ int main(int argc, char** argv) {
         std::uniform_int_distribution<size_t> distr(0, points.size() - 1);
         uint64_t outdist;
         std::vector<sqt> outpoints;
-        outpoints.reserve(4000 * count);
+        outpoints.reserve(8000);
         simple_dijkstra<true> djk(points, reverse_points, distances);
         auto start_time = std::chrono::steady_clock::now();
         for (size_t i = 0; i < count; i++) {
